@@ -127,8 +127,8 @@ document.addEventListener("DOMContentLoaded", function () {
       const r = model.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
 
       model.setAttribute("rotation", {
-        x: r.x + deltaY * ROTATE_SPEED, // arriba => rota arriba (como querías)
-        y: r.y + deltaX * ROTATE_SPEED,
+        x: r.x - deltaY * ROTATE_SPEED, // arriba => rota arriba (como querías)
+        y: r.y - deltaX * ROTATE_SPEED,
         z: r.z
       });
     }
@@ -154,6 +154,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
   </body>
 </html>
+
 
 
 
