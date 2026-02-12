@@ -38,44 +38,123 @@
 <script>
 document.addEventListener("DOMContentLoaded", function () {
   const model = document.querySelector("#modeloLucas");
+  if (!model) return;
 
-  let isDragging = false;
-  let previousX = 0;
-  let previousY = 0;
+  // Sensibilidad
+  const ROTATE_SPEED = 0.5;   // sube/baja para rotación
+  const ZOOM_SPEED   = 0.002; // sube/baja para zoom (pinch)
+  const MIN_SCALE = 0.1;
+  const MAX_SCALE = 3.0;
+
+  // Estado
+  let isRotating = false;
+  let prevX = 0;
+  let prevY = 0;
+
+  let isPinching = false;
+  let prevPinchDist = 0;
+
+  // Escala base (para no “resetear”)
+  let baseScale = model.getAttribute("scale") || { x: 0.5, y: 0.5, z: 0.5 };
+
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  function touchDistance(t1, t2) {
+    const dx = t2.clientX - t1.clientX;
+    const dy = t2.clientY - t1.clientY;
+    return Math.hypot(dx, dy);
+  }
 
   window.addEventListener("touchstart", function (event) {
-    isDragging = true;
-    previousX = event.touches[0].clientX;
-    previousY = event.touches[0].clientY;
-  });
+    if (!model) return;
+
+    if (event.touches.length === 1) {
+      // Rotación
+      isRotating = true;
+      isPinching = false;
+
+      prevX = event.touches[0].clientX;
+      prevY = event.touches[0].clientY;
+    }
+
+    if (event.touches.length === 2) {
+      // Zoom (pinch)
+      isPinching = true;
+      isRotating = false;
+
+      prevPinchDist = touchDistance(event.touches[0], event.touches[1]);
+      // Guarda escala actual como base
+      baseScale = model.getAttribute("scale") || baseScale;
+    }
+  }, { passive: true });
 
   window.addEventListener("touchmove", function (event) {
-    if (!isDragging || !model) return;
+    if (!model) return;
 
-    let deltaX = event.touches[0].clientX - previousX;
-    let deltaY = event.touches[0].clientY - previousY;
+    // 2 dedos: zoom
+    if (isPinching && event.touches.length === 2) {
+      const dist = touchDistance(event.touches[0], event.touches[1]);
+      const delta = dist - prevPinchDist;
+      prevPinchDist = dist;
 
-    previousX = event.touches[0].clientX;
-    previousY = event.touches[0].clientY;
+      // Ajuste de escala: delta positivo => zoom in
+      const factor = 1 + (delta * ZOOM_SPEED);
 
-    let currentRotation = model.getAttribute("rotation");
+      const current = model.getAttribute("scale") || baseScale;
+      const next = {
+        x: clamp(current.x * factor, MIN_SCALE, MAX_SCALE),
+        y: clamp(current.y * factor, MIN_SCALE, MAX_SCALE),
+        z: clamp(current.z * factor, MIN_SCALE, MAX_SCALE),
+      };
 
-    model.setAttribute("rotation", {
-      x: currentRotation.x - deltaY * 0.5,
-      y: currentRotation.y - deltaX * 0.5,
-      z: currentRotation.z
-    });
-  });
+      model.setAttribute("scale", next);
+      return;
+    }
 
-  window.addEventListener("touchend", function () {
-    isDragging = false;
-  });
+    // 1 dedo: rotación
+    if (isRotating && event.touches.length === 1) {
+      const x = event.touches[0].clientX;
+      const y = event.touches[0].clientY;
+
+      const deltaX = x - prevX;
+      const deltaY = y - prevY;
+
+      prevX = x;
+      prevY = y;
+
+      const r = model.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+
+      model.setAttribute("rotation", {
+        x: r.x + deltaY * ROTATE_SPEED, // arriba => rota arriba (como querías)
+        y: r.y + deltaX * ROTATE_SPEED,
+        z: r.z
+      });
+    }
+  }, { passive: true });
+
+  window.addEventListener("touchend", function (event) {
+    // Si quedan menos de 2 dedos, se apaga pinch
+    if (event.touches.length < 2) isPinching = false;
+    // Si quedan 0 dedos, se apaga rotación
+    if (event.touches.length === 0) isRotating = false;
+
+    // Si quedo 1 dedo, vuelve a modo rotación sin salto
+    if (event.touches.length === 1) {
+      isRotating = true;
+      prevX = event.touches[0].clientX;
+      prevY = event.touches[0].clientY;
+    }
+  }, { passive: true });
 });
 </script>
 
 
+
   </body>
 </html>
+
 
 
 
