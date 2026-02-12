@@ -9,153 +9,219 @@
 
   <body style="margin:0; overflow:hidden;">
     <a-scene
-      mindar-image="imageTargetSrc: ./targets.mind;"
+      mindar-image="imageTargetSrc: ./targets2.mind;"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
     >
-      
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- TARGET 0 -->
+      <!-- SOLO TARGET 0 -->
       <a-entity mindar-image-target="targetIndex: 0">
-          <a-gltf-model 
-            id="modeloLucas"
-            src="./lucas.glb"
-            position="0 0 0"
-            scale="0.5 0.5 0.5"
-            rotation="0 0 0">
-          </a-gltf-model>
+        <a-gltf-model
+          id="modelo"
+          src="./piezas2.glb"
+          position="0 0 0"
+          rotation="0 0 0"
+          scale="0.5 0.5 0.5"
+          parts-dragger="
+            horizontalNode: pieza1;
+            verticalNode: pieza2;
+            moveSpeed: 0.002;
+            zoomSpeed: 0.002;
+            minScale: 0.1;
+            maxScale: 3.0
+          "
+        ></a-gltf-model>
       </a-entity>
-
-      <!-- TARGET 1 -->
-      <a-entity mindar-image-target="targetIndex: 1">
-          <a-box position="0 0 0.2" depth="0.2" height="0.2" width="0.2"></a-box>
-      </a-entity>
-
     </a-scene>
 
-    <!-- SCRIPT DE ROTACIÓN -->
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-  const model = document.querySelector("#modeloLucas");
-  if (!model) return;
+    <script>
+      AFRAME.registerComponent("parts-dragger", {
+        schema: {
+          horizontalNode: { type: "string", default: "pieza1" },
+          verticalNode:   { type: "string", default: "pieza2" },
+          moveSpeed:      { type: "number", default: 0.002 },
+          zoomSpeed:      { type: "number", default: 0.002 },
+          minScale:       { type: "number", default: 0.1 },
+          maxScale:       { type: "number", default: 3.0 },
+        },
 
-  // Sensibilidad
-  const ROTATE_SPEED = 0.5;   // sube/baja para rotación
-  const ZOOM_SPEED   = 0.002; // sube/baja para zoom (pinch)
-  const MIN_SCALE = 0.1;
-  const MAX_SCALE = 3.0;
+        init: function () {
+          this.modelRoot = null;
+          this.piezaH = null;
+          this.piezaV = null;
 
-  // Estado
-  let isRotating = false;
-  let prevX = 0;
-  let prevY = 0;
+          this.selected = null; // "H" o "V"
+          this.dragging = false;
+          this.pinching = false;
 
-  let isPinching = false;
-  let prevPinchDist = 0;
+          this.prevX = 0;
+          this.prevY = 0;
+          this.prevPinchDist = 0;
 
-  // Escala base (para no “resetear”)
-  let baseScale = model.getAttribute("scale") || { x: 0.5, y: 0.5, z: 0.5 };
+          this.raycaster = new THREE.Raycaster();
+          this.ndc = new THREE.Vector2();
 
-  function clamp(v, min, max) {
-    return Math.max(min, Math.min(max, v));
-  }
+          this.onModelLoaded = this.onModelLoaded.bind(this);
+          this.onTouchStart  = this.onTouchStart.bind(this);
+          this.onTouchMove   = this.onTouchMove.bind(this);
+          this.onTouchEnd    = this.onTouchEnd.bind(this);
 
-  function touchDistance(t1, t2) {
-    const dx = t2.clientX - t1.clientX;
-    const dy = t2.clientY - t1.clientY;
-    return Math.hypot(dx, dy);
-  }
+          this.el.addEventListener("model-loaded", this.onModelLoaded);
 
-  window.addEventListener("touchstart", function (event) {
-    if (!model) return;
+          window.addEventListener("touchstart", this.onTouchStart, { passive: true });
+          window.addEventListener("touchmove",  this.onTouchMove,  { passive: true });
+          window.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
+        },
 
-    if (event.touches.length === 1) {
-      // Rotación
-      isRotating = true;
-      isPinching = false;
+        remove: function () {
+          window.removeEventListener("touchstart", this.onTouchStart);
+          window.removeEventListener("touchmove",  this.onTouchMove);
+          window.removeEventListener("touchend",   this.onTouchEnd);
+        },
 
-      prevX = event.touches[0].clientX;
-      prevY = event.touches[0].clientY;
-    }
+        clamp: function (v, min, max) {
+          return Math.max(min, Math.min(max, v));
+        },
 
-    if (event.touches.length === 2) {
-      // Zoom (pinch)
-      isPinching = true;
-      isRotating = false;
+        touchDistance: function (t1, t2) {
+          const dx = t2.clientX - t1.clientX;
+          const dy = t2.clientY - t1.clientY;
+          return Math.hypot(dx, dy);
+        },
 
-      prevPinchDist = touchDistance(event.touches[0], event.touches[1]);
-      // Guarda escala actual como base
-      baseScale = model.getAttribute("scale") || baseScale;
-    }
-  }, { passive: true });
+        onModelLoaded: function () {
+          this.modelRoot = this.el.getObject3D("mesh");
+          if (!this.modelRoot) return;
 
-  window.addEventListener("touchmove", function (event) {
-    if (!model) return;
+          this.piezaH = this.modelRoot.getObjectByName(this.data.horizontalNode);
+          this.piezaV = this.modelRoot.getObjectByName(this.data.verticalNode);
 
-    // 2 dedos: zoom
-    if (isPinching && event.touches.length === 2) {
-      const dist = touchDistance(event.touches[0], event.touches[1]);
-      const delta = dist - prevPinchDist;
-      prevPinchDist = dist;
+          if (!this.piezaH || !this.piezaV) {
+            console.warn("No encontré nodos. Revisa nombres:", {
+              horizontalNode: this.data.horizontalNode,
+              verticalNode: this.data.verticalNode,
+              foundH: !!this.piezaH,
+              foundV: !!this.piezaV
+            });
 
-      // Ajuste de escala: delta positivo => zoom in
-      const factor = 1 + (delta * ZOOM_SPEED);
+            // Debug: imprime nombres disponibles
+            this.modelRoot.traverse((o) => { if (o.name) console.log("NODE:", o.name); });
+          }
+        },
 
-      const current = model.getAttribute("scale") || baseScale;
-      const next = {
-        x: clamp(current.x * factor, MIN_SCALE, MAX_SCALE),
-        y: clamp(current.y * factor, MIN_SCALE, MAX_SCALE),
-        z: clamp(current.z * factor, MIN_SCALE, MAX_SCALE),
-      };
+        pickPart: function (clientX, clientY) {
+          const sceneEl = this.el.sceneEl;
+          const camera = sceneEl.camera;
+          const renderer = sceneEl.renderer;
+          if (!camera || !renderer || !this.modelRoot) return null;
 
-      model.setAttribute("scale", next);
-      return;
-    }
+          const rect = renderer.domElement.getBoundingClientRect();
+          this.ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+          this.ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
 
-    // 1 dedo: rotación
-    if (isRotating && event.touches.length === 1) {
-      const x = event.touches[0].clientX;
-      const y = event.touches[0].clientY;
+          this.raycaster.setFromCamera(this.ndc, camera);
+          const hits = this.raycaster.intersectObject(this.modelRoot, true);
+          if (!hits.length) return null;
 
-      const deltaX = x - prevX;
-      const deltaY = y - prevY;
+          const hitObj = hits[0].object;
 
-      prevX = x;
-      prevY = y;
+          const isInside = (obj, ancestor) => {
+            let o = obj;
+            while (o) {
+              if (o === ancestor) return true;
+              o = o.parent;
+            }
+            return false;
+          };
 
-      const r = model.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+          if (this.piezaH && isInside(hitObj, this.piezaH)) return "H";
+          if (this.piezaV && isInside(hitObj, this.piezaV)) return "V";
+          return null;
+        },
 
-      model.setAttribute("rotation", {
-        x: r.x - deltaY * ROTATE_SPEED, // arriba => rota arriba (como querías)
-        y: r.y - deltaX * ROTATE_SPEED,
-        z: r.z
+        onTouchStart: function (event) {
+          if (!this.modelRoot) return;
+
+          if (event.touches.length === 2) {
+            // Pinch zoom del modelo completo
+            this.pinching = true;
+            this.dragging = false;
+            this.prevPinchDist = this.touchDistance(event.touches[0], event.touches[1]);
+            return;
+          }
+
+          if (event.touches.length === 1) {
+            this.pinching = false;
+            this.dragging = true;
+
+            const t = event.touches[0];
+            this.prevX = t.clientX;
+            this.prevY = t.clientY;
+
+            // Selecciona pieza tocada
+            const picked = this.pickPart(t.clientX, t.clientY);
+            this.selected = picked; // "H" | "V" | null
+          }
+        },
+
+        onTouchMove: function (event) {
+          if (!this.modelRoot) return;
+
+          // Pinch zoom
+          if (this.pinching && event.touches.length === 2) {
+            const dist = this.touchDistance(event.touches[0], event.touches[1]);
+            const delta = dist - this.prevPinchDist;
+            this.prevPinchDist = dist;
+
+            const factor = 1 + (delta * this.data.zoomSpeed);
+
+            const current = this.el.getAttribute("scale") || { x: 0.5, y: 0.5, z: 0.5 };
+            const next = {
+              x: this.clamp(current.x * factor, this.data.minScale, this.data.maxScale),
+              y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
+              z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
+            };
+            this.el.setAttribute("scale", next);
+            return;
+          }
+
+          // Drag 1 dedo: mueve SOLO la pieza seleccionada
+          if (this.dragging && event.touches.length === 1 && this.selected) {
+            const t = event.touches[0];
+            const x = t.clientX;
+            const y = t.clientY;
+
+            const dx = x - this.prevX;
+            const dy = y - this.prevY;
+
+            this.prevX = x;
+            this.prevY = y;
+
+            if (this.selected === "H" && this.piezaH) {
+              // pieza1: solo X
+              this.piezaH.position.x += dx * this.data.moveSpeed;
+            } else if (this.selected === "V" && this.piezaV) {
+              // pieza2: solo Y (arriba en pantalla = +Y)
+              this.piezaV.position.y += -dy * this.data.moveSpeed;
+            }
+          }
+        },
+
+        onTouchEnd: function (event) {
+          if (event.touches.length < 2) this.pinching = false;
+          if (event.touches.length === 0) {
+            this.dragging = false;
+            this.selected = null; // suelta selección al levantar
+          }
+
+          if (event.touches.length === 1) {
+            const t = event.touches[0];
+            this.prevX = t.clientX;
+            this.prevY = t.clientY;
+          }
+        },
       });
-    }
-  }, { passive: true });
-
-  window.addEventListener("touchend", function (event) {
-    // Si quedan menos de 2 dedos, se apaga pinch
-    if (event.touches.length < 2) isPinching = false;
-    // Si quedan 0 dedos, se apaga rotación
-    if (event.touches.length === 0) isRotating = false;
-
-    // Si quedo 1 dedo, vuelve a modo rotación sin salto
-    if (event.touches.length === 1) {
-      isRotating = true;
-      prevX = event.touches[0].clientX;
-      prevY = event.touches[0].clientY;
-    }
-  }, { passive: true });
-});
-</script>
-
-
-
+    </script>
   </body>
 </html>
-
-
-
-
-
