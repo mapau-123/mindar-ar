@@ -15,22 +15,58 @@
     >
       
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+      <!-- TARGET 0 -->
       <a-entity mindar-image-target="targetIndex: 0">
           <a-gltf-model 
+            id="modeloLucas"
             src="./lucas.glb"
             position="0 0 0"
             scale="0.5 0.5 0.5"
             rotation="0 0 0">
           </a-gltf-model>
       </a-entity>
+
+      <!-- TARGET 1 -->
       <a-entity mindar-image-target="targetIndex: 1">
           <a-box position="0 0 0.2" depth="0.2" height="0.2" width="0.2"></a-box>
       </a-entity>
+
     </a-scene>
+
+    <!-- SCRIPT DE ROTACIÓN -->
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      const model = document.querySelector("#modeloLucas");
+
+      let isDragging = false;
+      let previousX = 0;
+
+      window.addEventListener("touchstart", function (event) {
+        isDragging = true;
+        previousX = event.touches[0].clientX;
+      });
+
+      window.addEventListener("touchmove", function (event) {
+        if (!isDragging || !model) return;
+
+        let deltaX = event.touches[0].clientX - previousX;
+        previousX = event.touches[0].clientX;
+
+        let currentRotation = model.getAttribute("rotation");
+
+        model.setAttribute("rotation", {
+          x: currentRotation.x,
+          y: currentRotation.y + deltaX * 0.5,
+          z: currentRotation.z
+        });
+      });
+
+      window.addEventListener("touchend", function () {
+        isDragging = false;
+      });
+    });
+    </script>
+
   </body>
 </html>
-
-
-
-
-
