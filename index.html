@@ -62,7 +62,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
     model.setAttribute("rotation", {
       x: currentRotation.x - deltaY * 0.5,
-      y: currentRotation.y + deltaX * 0.5,
+      y: currentRotation.y - deltaX * 0.5,
       z: currentRotation.z
     });
   });
@@ -76,3 +76,4 @@ document.addEventListener("DOMContentLoaded", function () {
 
   </body>
 </html>
+
