@@ -28,8 +28,8 @@
             verticalNode: pieza2;
             moveSpeed: 0.002;
             zoomSpeed: 0.002;
-            minScale: 0.1;
-            maxScale: 3.0
+            minScale: 1.0;
+            maxScale: 10.0
           "
         ></a-gltf-model>
       </a-entity>
@@ -43,13 +43,13 @@
           moveSpeed:      { type: "number", default: 0.002 },
           zoomSpeed:      { type: "number", default: 0.002 },
           minScale:       { type: "number", default: 0.1 },
-          maxScale:       { type: "number", default: 3.0 },
+          maxScale:       { type: "number", default: 10.0 },
         },
 
         init: function () {
           this.modelRoot = null;
-          this.piezaH = null;
-          this.piezaV = null;
+          this.pieza1 = null;
+          this.pieza2 = null;
 
           this.selected = null; // "H" o "V"
           this.dragging = false;
@@ -225,4 +225,5 @@
     </script>
   </body>
 </html>
+
 
