@@ -139,9 +139,19 @@
           return false;
         };
     
-        if (this.pieza1 && isInside(hitObj, this.pieza1)) return "H";
-        if (this.pieza2 && isInside(hitObj, this.pieza2)) return "V";
-        return null;
+        const hasAncestorNamed = (obj, name) => {
+        let o = obj;
+        while (o) {
+          if (o.name === name) return true;
+          o = o.parent;
+        }
+        return false;
+      };
+      
+      if (hasAncestorNamed(hitObj, this.data.horizontalNode)) return "H";
+      if (hasAncestorNamed(hitObj, this.data.verticalNode)) return "V";
+      return null;
+
       },
     
       onTouchStart: function (event) {
@@ -241,6 +251,7 @@
     </script>
   </body>
 </html>
+
 
 
 
