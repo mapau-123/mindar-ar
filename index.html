@@ -195,8 +195,8 @@
           const x = t.clientX;
           const y = t.clientY;
     
-          const dx = x - this.prevX;
-          const dy = y - this.prevY;
+          const dx = x + this.prevX;
+          const dy = y + this.prevY;
     
           this.prevX = x;
           this.prevY = y;
@@ -240,6 +240,7 @@
     </script>
   </body>
 </html>
+
 
 
 
