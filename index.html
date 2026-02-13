@@ -9,7 +9,7 @@
 
   <body style="margin:0; overflow:hidden;">
     <a-scene
-      mindar-image="imageTargetSrc: ./targets2.mind;"
+      mindar-image="imageTargetSrc: ./targets.mind;"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
     >
@@ -94,15 +94,15 @@
           this.modelRoot = this.el.getObject3D("mesh");
           if (!this.modelRoot) return;
 
-          this.piezaH = this.modelRoot.getObjectByName(this.data.horizontalNode);
-          this.piezaV = this.modelRoot.getObjectByName(this.data.verticalNode);
+          this.pieza1 = this.modelRoot.getObjectByName(this.data.horizontalNode);
+          this.pieza2 = this.modelRoot.getObjectByName(this.data.verticalNode);
 
-          if (!this.piezaH || !this.piezaV) {
+          if (!this.pieza1 || !this.pieza2) {
             console.warn("No encontré nodos. Revisa nombres:", {
               horizontalNode: this.data.horizontalNode,
               verticalNode: this.data.verticalNode,
-              foundH: !!this.piezaH,
-              foundV: !!this.piezaV
+              foundH: !!this.pieza1,
+              foundV: !!this.pieza2
             });
 
             // Debug: imprime nombres disponibles
@@ -135,8 +135,8 @@
             return false;
           };
 
-          if (this.piezaH && isInside(hitObj, this.piezaH)) return "H";
-          if (this.piezaV && isInside(hitObj, this.piezaV)) return "V";
+          if (this.pieza1 && isInside(hitObj, this.pieza1)) return "H";
+          if (this.pieza2 && isInside(hitObj, this.pieza2)) return "V";
           return null;
         },
 
@@ -198,12 +198,12 @@
             this.prevX = x;
             this.prevY = y;
 
-            if (this.selected === "H" && this.piezaH) {
+            if (this.selected === "H" && this.pieza1) {
               // pieza1: solo X
-              this.piezaH.position.x += dx * this.data.moveSpeed;
-            } else if (this.selected === "V" && this.piezaV) {
+              this.pieza1.position.x += dx * this.data.moveSpeed;
+            } else if (this.selected === "V" && this.pieza2) {
               // pieza2: solo Y (arriba en pantalla = +Y)
-              this.piezaV.position.y += -dy * this.data.moveSpeed;
+              this.pieza2.position.y += -dy * this.data.moveSpeed;
             }
           }
         },
@@ -225,5 +225,6 @@
     </script>
   </body>
 </html>
+
 
 
