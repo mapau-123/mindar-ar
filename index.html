@@ -195,8 +195,8 @@
           const x = t.clientX;
           const y = t.clientY;
     
-          const dx = x + this.prevX;
-          const dy = y + this.prevY;
+          const dx = x - this.prevX;
+          const dy = y - this.prevY;
     
           this.prevX = x;
           this.prevY = y;
@@ -214,8 +214,8 @@
             const r = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
     
             this.el.setAttribute("rotation", {
-              x: r.x - dy * this.data.rotateSpeed,
-              y: r.y - dx * this.data.rotateSpeed,
+              x: r.x + dy * this.data.rotateSpeed,
+              y: r.y + dx * this.data.rotateSpeed,
               z: r.z
             });
           }
@@ -240,6 +240,7 @@
     </script>
   </body>
 </html>
+
 
 
 
