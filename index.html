@@ -24,12 +24,13 @@
           rotation="0 0 0"
           scale="2.5 2.5 2.5"
           parts-dragger="
-            horizontalNode: pieza1;
-            verticalNode: pieza2;
+            horizontalNode: Body1;
+            verticalNode: Body1001;
             moveSpeed: 0.002;
             zoomSpeed: 0.002;
             minScale: 1.0;
-            maxScale: 10.0
+            maxScale: 10.0;
+            rotateSpeed: 0.5
           "
         ></a-gltf-model>
       </a-entity>
@@ -38,8 +39,8 @@
     <script>
     AFRAME.registerComponent("parts-dragger", {
       schema: {
-        horizontalNode: { type: "string", default: "pieza1" },
-        verticalNode:   { type: "string", default: "pieza2" },
+        horizontalNode: { type: "string", default: "Body1" },
+        verticalNode:   { type: "string", default: "Body1001" },
         moveSpeed:      { type: "number", default: 0.002 },
         zoomSpeed:      { type: "number", default: 0.002 },
         minScale:       { type: "number", default: 1.0 },
@@ -240,6 +241,7 @@
     </script>
   </body>
 </html>
+
 
 
 
