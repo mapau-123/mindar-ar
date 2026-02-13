@@ -45,6 +45,11 @@
         zoomSpeed:      { type: "number", default: 0.002 },
         minScale:       { type: "number", default: 1.0 },
         maxScale:       { type: "number", default: 10.0 },
+        minX: { type: "number", default: -0.2 },
+        maxX: { type: "number", default:  0.2 },
+        minY: { type: "number", default: -0.2 },
+        maxY: { type: "number", default:  0.2 },
+
     
         // 🔥 NUEVO: rotación del modelo completo
         rotateSpeed:    { type: "number", default: 0.5 },
@@ -213,12 +218,15 @@
           this.prevY = y;
     
           if (this.selected === "H" && this.pieza1) {
-            // pieza1: solo X
-            this.pieza1.position.x += dx * this.data.moveSpeed;
+            // pieza1: solo x
+            const nextX = this.pieza1.position.x + dx * this.data.moveSpeed;
+            this.pieza1.position.x = this.clamp(nextX, this.data.minX, this.data.maxX);
     
           } else if (this.selected === "V" && this.pieza2) {
             // pieza2: solo Y (arriba en pantalla = +Y)
-            this.pieza2.position.y += -dy * this.data.moveSpeed;
+            const nextY = this.pieza2.position.y + (-dy) * this.data.moveSpeed;
+            this.pieza2.position.y = this.clamp(nextY, this.data.minY, this.data.maxY);
+
     
           } else {
             // 🔥 NUEVO: si no tocaste una pieza -> rota TODO el modelo
@@ -251,6 +259,7 @@
     </script>
   </body>
 </html>
+
 
 
 
