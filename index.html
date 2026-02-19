@@ -271,7 +271,7 @@
             const r = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
 
             // Arriba/abajo -> X (pitch)
-            const dRotX = dy * this.data.rotateSpeed;
+            const dRotX = -dy * this.data.rotateSpeed;
             
             // Izquierda/derecha -> Y (yaw)
             const dRotY = dx * this.data.rotateSpeed;
@@ -306,6 +306,7 @@
     </script>
   </body>
 </html>
+
 
 
 
