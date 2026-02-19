@@ -316,7 +316,6 @@
               return;
             }
 
-            // ROTAR TODO el modelo con base en la cámara (no en ejes iniciales)
             const obj = this.rotTarget || this.el.object3D;
             const s = 0.005 * this.data.rotateSpeed;
             
@@ -344,7 +343,7 @@
               obj.rotateX(pitch);
               obj.rotateY(yaw);
             }
-
+          }
         },
 
         onTouchEnd: function (event) {
@@ -367,7 +366,6 @@
     </script>
   </body>
 </html>
-
 
 
 
