@@ -269,26 +269,10 @@
 
             // Si no tocaste nada interactivo: rota todo el modelo
             const r = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
-
-            // 1) Horizontal -> X (derecha = +X, izquierda = -X)
-            const dRotX = dx * this.data.rotateSpeed;
-            
-            // 2) Vertical -> Z (abajo = +Z “hacia adelante”, arriba = -Z “hacia atrás”)
-            const dRotZ = dy * this.data.rotateSpeed;
-            
-            // 3) Diagonal hacia abajo -> Y (solo cuando dy es positivo “abajo”)
-            //    derecha-abajo => +Y, izquierda-abajo => -Y
-            //    La fuerza depende de cuánto “diagonal” sea (usa el menor de |dx| y |dy| para que sea suave)
-            let dRotY = 0;
-            if (dy > 0) {
-              const diagStrength = Math.min(Math.abs(dx), Math.abs(dy));
-              dRotY = Math.sign(dx) * diagStrength * this.data.rotateSpeed;
-            }
-            
             this.el.setAttribute("rotation", {
-              x: r.x + dRotX,
-              y: r.y + dRotY,
-              z: r.z + dRotZ
+              x: r.x,
+              y: r.y,
+              z: r.z + dy * this.data.rotateSpeed
             });
 
           }
@@ -312,6 +296,7 @@
     </script>
   </body>
 </html>
+
 
 
 
