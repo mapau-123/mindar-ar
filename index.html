@@ -269,10 +269,22 @@
 
             // Si no tocaste nada interactivo: rota todo el modelo
             const r = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+
+            // Arriba/abajo -> X (pitch)
+            const dRotX = dy * this.data.rotateSpeed;
+            
+            // Izquierda/derecha -> Y (yaw)
+            const dRotY = dx * this.data.rotateSpeed;
+            
+            // (Opcional) Z lo dejas quieto para evitar el “roll”
+            const dRotZ = 0;
+            
             this.el.setAttribute("rotation", {
-              x: r.x,
-              y: r.y,
-              z: r.z + dy * this.data.rotateSpeed
+              x: r.x + dRotX,
+              y: r.y + dRotY,
+              z: r.z + dRotZ
+            });
+
             });
 
           }
@@ -296,6 +308,7 @@
     </script>
   </body>
 </html>
+
 
 
 
