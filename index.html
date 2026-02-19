@@ -12,41 +12,45 @@
       mindar-image="imageTargetSrc: ./targets.mind;"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
+      renderer="colorManagement: true; physicallyCorrectLights: true"
     >
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <a-entity mindar-image-target="targetIndex: 0">
+      <!-- TARGET -->
+      <a-entity id="target0" mindar-image-target="targetIndex: 0">
 
-        <a-gltf-model
-          id="modelo"
-          src="./carromodelo2.glb"
-          position="0 0 0"
-          rotation="0 0 0"
-          scale="2.5 2.5 2.5"
-          carrito-controls="
-            tapaNode: tapa v1:1;
-            wheel1Node: rueda1 v1:1;
-            wheel2Node: rueda2 v1:1;
+        <!-- PIVOT: aquí se rota el modelo completo -->
+        <a-entity id="pivot" carrito-controls="
+          tapaNode: 'tapa v1:1';
+          wheel1Node: 'rueda1 v1:1';
+          wheel2Node: 'rueda2 v1:1';
 
-            rotateSpeed: 0.5;
-            zoomSpeed: 0.002;
-            minScale: 1.0;
-            maxScale: 10.0;
+          rotateSpeed: 0.5;
+          zoomSpeed: 0.002;
+          minScale: 1.0;
+          maxScale: 10.0;
 
-            wheelMoveSpeed: 0.002;
-            wheelRange: 0.15;
+          wheelMoveSpeed: 0.002;
+          wheelRange: 0.15;
 
-            tapaRotateSpeed: 0.3;
-            tapaMinX: -10;
-            tapaMaxX: 85;
-          "
-        ></a-gltf-model>
+          tapaRotateSpeed: 0.3;
+          tapaMinX: -10;
+          tapaMaxX: 85;
+        ">
+          <a-gltf-model
+            id="modelo"
+            src="./carromodelo2.glb"
+            position="0 0 0"
+            rotation="0 0 0"
+            scale="2.5 2.5 2.5"
+          ></a-gltf-model>
 
-        <!-- Ejes de referencia -->
-        <a-entity position="0 0 0">
-          <a-entity line="start: 0 0 0; end: 0.2 0 0; color: red"></a-entity>
-          <a-entity line="start: 0 0 0; end: 0 0.2 0; color: green"></a-entity>
-          <a-entity line="start: 0 0 0; end: 0 0 0.2; color: blue"></a-entity>
+          <!-- Ejes de referencia -->
+          <a-entity position="0 0 0">
+            <a-entity line="start: 0 0 0; end: 0.2 0 0; color: red"></a-entity>
+            <a-entity line="start: 0 0 0; end: 0 0.2 0; color: green"></a-entity>
+            <a-entity line="start: 0 0 0; end: 0 0 0.2; color: blue"></a-entity>
+          </a-entity>
         </a-entity>
 
       </a-entity>
@@ -55,9 +59,9 @@
     <script>
       AFRAME.registerComponent("carrito-controls", {
         schema: {
-          tapaNode:   { type: "string", default: "tapa v1:1" },
-          wheel1Node: { type: "string", default: "rueda1 v1:1" },
-          wheel2Node: { type: "string", default: "rueda2 v1:1" },
+          tapaNode:   { type: "string", default: "" },
+          wheel1Node: { type: "string", default: "" },
+          wheel2Node: { type: "string", default: "" },
 
           rotateSpeed: { type: "number", default: 0.5 },
 
@@ -75,8 +79,11 @@
         },
 
         init: function () {
-          this.modelRoot = null;
+          // El componente está en el PIVOT (<a-entity id="pivot">)
+          // El target entity es el padre del pivot (mindar-image-target)
+          this.targetEl = this.el.parentEl;
 
+          this.modelRoot = null;
           this.tapa = null;
           this.wheel1 = null;
           this.wheel2 = null;
@@ -87,6 +94,7 @@
           this.selected = null; // "TAPA" | "W1" | "W2" | null
           this.dragging = false;
           this.pinching = false;
+          this.enabled = false; // solo cuando el target está visible
 
           this.prevX = 0;
           this.prevY = 0;
@@ -95,23 +103,58 @@
           this.raycaster = new THREE.Raycaster();
           this.ndc = new THREE.Vector2();
 
+          // rotaremos el pivot (this.el.object3D)
+          this.rotTarget = this.el.object3D;
+
           this.onModelLoaded = this.onModelLoaded.bind(this);
           this.onTouchStart  = this.onTouchStart.bind(this);
           this.onTouchMove   = this.onTouchMove.bind(this);
           this.onTouchEnd    = this.onTouchEnd.bind(this);
+          this.bindCanvasEvents = this.bindCanvasEvents.bind(this);
 
-          this.el.addEventListener("model-loaded", this.onModelLoaded);
+          // Target found/lost (escucha en el entity del target)
+          if (this.targetEl) {
+            this.targetEl.addEventListener("targetFound", () => (this.enabled = true));
+            this.targetEl.addEventListener("targetLost",  () => {
+              this.enabled = false;
+              this.dragging = false;
+              this.pinching = false;
+              this.selected = null;
+            });
+          }
 
-          // OJO: para pinch zoom en mobile, es mejor passive:false en touchmove
-          window.addEventListener("touchstart", this.onTouchStart, { passive: true });
-          window.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
-          window.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
+          // Espera a que el canvas exista
+          this.el.sceneEl.addEventListener("render-target-loaded", this.bindCanvasEvents);
+
+          // El gltf-model está dentro del pivot: lo buscamos y escuchamos su "model-loaded"
+          this.gltfEl = this.el.querySelector("a-gltf-model");
+          if (this.gltfEl) {
+            this.gltfEl.addEventListener("model-loaded", this.onModelLoaded);
+          } else {
+            console.warn("No encontré el <a-gltf-model> dentro del pivot.");
+          }
         },
 
         remove: function () {
-          window.removeEventListener("touchstart", this.onTouchStart);
-          window.removeEventListener("touchmove",  this.onTouchMove);
-          window.removeEventListener("touchend",   this.onTouchEnd);
+          const canvas = this.el.sceneEl && this.el.sceneEl.canvas;
+          if (canvas) {
+            canvas.removeEventListener("touchstart", this.onTouchStart);
+            canvas.removeEventListener("touchmove",  this.onTouchMove);
+            canvas.removeEventListener("touchend",   this.onTouchEnd);
+          }
+          this.el.sceneEl.removeEventListener("render-target-loaded", this.bindCanvasEvents);
+
+          if (this.gltfEl) this.gltfEl.removeEventListener("model-loaded", this.onModelLoaded);
+        },
+
+        bindCanvasEvents: function () {
+          const canvas = this.el.sceneEl && this.el.sceneEl.canvas;
+          if (!canvas) return;
+
+          // Importante: touchmove passive:false para poder preventDefault en pinch
+          canvas.addEventListener("touchstart", this.onTouchStart, { passive: true });
+          canvas.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
+          canvas.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
         },
 
         clamp: function (v, min, max) {
@@ -125,11 +168,13 @@
         },
 
         onModelLoaded: function () {
-          // target a rotar con ejes locales (incremental)
-          this.rotTarget = this.el.object3D;
-
-          this.modelRoot = this.el.getObject3D("mesh");
+          // Importante: el mesh del gltf está en gltfEl
+          this.modelRoot = this.gltfEl.getObject3D("mesh");
           if (!this.modelRoot) return;
+
+          // Log de nodos para que confirmes nombres exactos
+          console.log("=== NODOS DEL GLB ===");
+          this.modelRoot.traverse((o) => { if (o.name) console.log("NODE:", o.name); });
 
           this.tapa   = this.modelRoot.getObjectByName(this.data.tapaNode);
           this.wheel1 = this.modelRoot.getObjectByName(this.data.wheel1Node);
@@ -139,167 +184,9 @@
           if (this.wheel2) this.baseWheel2X = this.wheel2.position.x;
 
           if (!this.tapa || !this.wheel1 || !this.wheel2) {
-            console.warn("No encontré uno o más nodos. Verifica nombres exactos:", {
+            console.warn("No encontré uno o más nodos. Revisa nombres exactos:", {
               tapaNode: this.data.tapaNode,
-              wheel1Node: this.data.wheel1Node,
-              wheel2Node: this.data.wheel2Node,
-              foundTapa: !!this.tapa,
-              foundW1: !!this.wheel1,
-              foundW2: !!this.wheel2
-            });
-            this.modelRoot.traverse((o) => { if (o.name) console.log("NODE:", o.name); });
-          }
-        },
-
-        pickPart: function (clientX, clientY) {
-          const sceneEl = this.el.sceneEl;
-          const camera = sceneEl.camera;
-          const renderer = sceneEl.renderer;
-          if (!camera || !renderer || !this.modelRoot) return null;
-
-          const rect = renderer.domElement.getBoundingClientRect();
-          this.ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-          this.ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
-
-          this.raycaster.setFromCamera(this.ndc, camera);
-          const hits = this.raycaster.intersectObject(this.modelRoot, true);
-          if (!hits.length) return null;
-
-          const hitObj = hits[0].object;
-
-          const hasAncestorNamed = (obj, name) => {
-            let o = obj;
-            while (o) {
-              if (o.name === name) return true;
-              o = o.parent;
-            }
-            return false;
-          };
-
-          if (hasAncestorNamed(hitObj, this.data.tapaNode))   return "TAPA";
-          if (hasAncestorNamed(hitObj, this.data.wheel1Node)) return "W1";
-          if (hasAncestorNamed(hitObj, this.data.wheel2Node)) return "W2";
-          return null;
-        },
-
-        onTouchStart: function (event) {
-          if (!this.modelRoot) return;
-
-          if (event.touches.length === 2) {
-            this.pinching = true;
-            this.dragging = false;
-            this.prevPinchDist = this.touchDistance(event.touches[0], event.touches[1]);
-            return;
-          }
-
-          if (event.touches.length === 1) {
-            this.pinching = false;
-            this.dragging = true;
-
-            const t = event.touches[0];
-            this.prevX = t.clientX;
-            this.prevY = t.clientY;
-
-            this.selected = this.pickPart(t.clientX, t.clientY);
-          }
-        },
-
-        onTouchMove: function (event) {
-          if (!this.modelRoot) return;
-
-          // evita que el navegador haga scroll/zoom de la página durante el pinch
-          if (event.cancelable) event.preventDefault();
-
-          // 2 dedos: zoom del modelo completo
-          if (this.pinching && event.touches.length === 2) {
-            const dist = this.touchDistance(event.touches[0], event.touches[1]);
-            const delta = dist - this.prevPinchDist;
-            this.prevPinchDist = dist;
-
-            const factor = 1 + (delta * this.data.zoomSpeed);
-
-            const current = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
-            const next = {
-              x: this.clamp(current.x * factor, this.data.minScale, this.data.maxScale),
-              y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
-              z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
-            };
-
-            this.el.setAttribute("scale", next);
-            return;
-          }
-
-          // 1 dedo
-          if (this.dragging && event.touches.length === 1) {
-            const t = event.touches[0];
-            const x = t.clientX;
-            const y = t.clientY;
-
-            const dx = x - this.prevX;
-            const dy = y - this.prevY;
-
-            this.prevX = x;
-            this.prevY = y;
-
-            // TAPA: abrir/cerrar (rotación en X local de la tapa)
-            if (this.selected === "TAPA" && this.tapa) {
-              const deltaDeg = (-dy) * this.data.tapaRotateSpeed;
-              const currentDeg = THREE.MathUtils.radToDeg(this.tapa.rotation.x);
-              const nextDeg = this.clamp(currentDeg + deltaDeg, this.data.tapaMinX, this.data.tapaMaxX);
-              this.tapa.rotation.x = THREE.MathUtils.degToRad(nextDeg);
-              return;
-            }
-
-            // RUEDA 1: solo derecha (X+)
-            if (this.selected === "W1" && this.wheel1) {
-              const delta = dx * this.data.wheelMoveSpeed;
-              const onlyRight = Math.max(0, delta);
-              const min = this.baseWheel1X;
-              const max = this.baseWheel1X + this.data.wheelRange;
-              this.wheel1.position.x = this.clamp(this.wheel1.position.x + onlyRight, min, max);
-              return;
-            }
-
-            // RUEDA 2: solo izquierda (X-)
-            if (this.selected === "W2" && this.wheel2) {
-              const delta = dx * this.data.wheelMoveSpeed;
-              const onlyLeft = Math.min(0, delta);
-              const min = this.baseWheel2X - this.data.wheelRange;
-              const max = this.baseWheel2X;
-              this.wheel2.position.x = this.clamp(this.wheel2.position.x + onlyLeft, min, max);
-              return;
-            }
-
-            // ROTAR TODO el modelo con ejes locales (según perspectiva actual)
-            const obj = this.rotTarget || this.el.object3D;
-            const s = 0.005 * this.data.rotateSpeed; // sensibilidad
-
-            const pitch = dy * s; // arriba/abajo
-            const yaw   = dx * s; // izq/der
-
-            obj.rotateX(pitch);
-            obj.rotateY(yaw);
-          }
-        },
-
-        onTouchEnd: function (event) {
-          if (event.touches.length < 2) this.pinching = false;
-
-          if (event.touches.length === 0) {
-            this.dragging = false;
-            this.selected = null;
-          }
-
-          if (event.touches.length === 1) {
-            const t = event.touches[0];
-            this.prevX = t.clientX;
-            this.prevY = t.clientY;
-          }
-        },
-      });
-    </script>
-  </body>
-</html>
+              whe
 
 
 
