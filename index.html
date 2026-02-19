@@ -186,9 +186,168 @@
           if (!this.tapa || !this.wheel1 || !this.wheel2) {
             console.warn("No encontré uno o más nodos. Revisa nombres exactos:", {
               tapaNode: this.data.tapaNode,
-              whe
+              wheel1Node: this.data.wheel1Node,
+              wheel2Node: this.data.wheel2Node,
+              foundTapa: !!this.tapa,
+              foundW1: !!this.wheel1,
+              foundW2: !!this.wheel2
+            });
+          }
+        },
 
+        pickPart: function (clientX, clientY) {
+          const sceneEl = this.el.sceneEl;
+          const camera = sceneEl.camera;
+          const renderer = sceneEl.renderer;
+          if (!camera || !renderer || !this.modelRoot) return null;
 
+          const rect = renderer.domElement.getBoundingClientRect();
+          this.ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+          this.ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+
+          this.raycaster.setFromCamera(this.ndc, camera);
+          const hits = this.raycaster.intersectObject(this.modelRoot, true);
+          if (!hits.length) return null;
+
+          const hitObj = hits[0].object;
+
+          const hasAncestorNamed = (obj, name) => {
+            let o = obj;
+            while (o) {
+              if (o.name === name) return true;
+              o = o.parent;
+            }
+            return false;
+          };
+
+          if (hasAncestorNamed(hitObj, this.data.tapaNode))   return "TAPA";
+          if (hasAncestorNamed(hitObj, this.data.wheel1Node)) return "W1";
+          if (hasAncestorNamed(hitObj, this.data.wheel2Node)) return "W2";
+          return null;
+        },
+
+        onTouchStart: function (event) {
+          if (!this.enabled) return;
+          if (!this.modelRoot) return;
+
+          if (event.touches.length === 2) {
+            this.pinching = true;
+            this.dragging = false;
+            this.prevPinchDist = this.touchDistance(event.touches[0], event.touches[1]);
+            return;
+          }
+
+          if (event.touches.length === 1) {
+            this.pinching = false;
+            this.dragging = true;
+
+            const t = event.touches[0];
+            this.prevX = t.clientX;
+            this.prevY = t.clientY;
+
+            this.selected = this.pickPart(t.clientX, t.clientY);
+          }
+        },
+
+        onTouchMove: function (event) {
+          if (!this.enabled) return;
+          if (!this.modelRoot) return;
+
+          // evita que el navegador haga scroll/zoom de la página durante el pinch
+          if (event.cancelable) event.preventDefault();
+
+          // 2 dedos: zoom del TARGET completo (así escala todo el conjunto)
+          if (this.pinching && event.touches.length === 2) {
+            const dist = this.touchDistance(event.touches[0], event.touches[1]);
+            const delta = dist - this.prevPinchDist;
+            this.prevPinchDist = dist;
+
+            const factor = 1 + (delta * this.data.zoomSpeed);
+
+            const current = this.targetEl.getAttribute("scale") || { x: 1, y: 1, z: 1 };
+            const next = {
+              x: this.clamp(current.x * factor, this.data.minScale, this.data.maxScale),
+              y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
+              z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
+            };
+
+            this.targetEl.setAttribute("scale", next);
+            return;
+          }
+
+          // 1 dedo
+          if (this.dragging && event.touches.length === 1) {
+            const t = event.touches[0];
+            const x = t.clientX;
+            const y = t.clientY;
+
+            const dx = x - this.prevX;
+            const dy = y - this.prevY;
+
+            this.prevX = x;
+            this.prevY = y;
+
+            // TAPA: abrir/cerrar (rotación en X local de la tapa)
+            if (this.selected === "TAPA" && this.tapa) {
+              const deltaDeg = (-dy) * this.data.tapaRotateSpeed;
+              const currentDeg = THREE.MathUtils.radToDeg(this.tapa.rotation.x);
+              const nextDeg = this.clamp(currentDeg + deltaDeg, this.data.tapaMinX, this.data.tapaMaxX);
+              this.tapa.rotation.x = THREE.MathUtils.degToRad(nextDeg);
+              return;
+            }
+
+            // RUEDA 1: solo derecha (X+)
+            if (this.selected === "W1" && this.wheel1) {
+              const delta = dx * this.data.wheelMoveSpeed;
+              const onlyRight = Math.max(0, delta);
+              const min = this.baseWheel1X;
+              const max = this.baseWheel1X + this.data.wheelRange;
+              this.wheel1.position.x = this.clamp(this.wheel1.position.x + onlyRight, min, max);
+              return;
+            }
+
+            // RUEDA 2: solo izquierda (X-)
+            if (this.selected === "W2" && this.wheel2) {
+              const delta = dx * this.data.wheelMoveSpeed;
+              const onlyLeft = Math.min(0, delta);
+              const min = this.baseWheel2X - this.data.wheelRange;
+              const max = this.baseWheel2X;
+              this.wheel2.position.x = this.clamp(this.wheel2.position.x + onlyLeft, min, max);
+              return;
+            }
+
+            // ROTAR TODO el modelo (pivot) con ejes locales
+            const obj = this.rotTarget || this.el.object3D;
+            const s = 0.005 * this.data.rotateSpeed;
+
+            const pitch = dy * s;
+            const yaw   = dx * s;
+
+            obj.rotateX(pitch);
+            obj.rotateY(yaw);
+          }
+        },
+
+        onTouchEnd: function (event) {
+          if (!this.enabled) return;
+
+          if (event.touches.length < 2) this.pinching = false;
+
+          if (event.touches.length === 0) {
+            this.dragging = false;
+            this.selected = null;
+          }
+
+          if (event.touches.length === 1) {
+            const t = event.touches[0];
+            this.prevX = t.clientX;
+            this.prevY = t.clientY;
+          }
+        },
+      });
+    </script>
+  </body>
+</html>
 
 
 
