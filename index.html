@@ -16,6 +16,7 @@
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
       <a-entity mindar-image-target="targetIndex: 0">
+
         <a-gltf-model
           id="modelo"
           src="./carromodelo2.glb"
@@ -40,13 +41,14 @@
             tapaMaxX: 85;
           "
         ></a-gltf-model>
+
+        <!-- Ejes de referencia -->
         <a-entity position="0 0 0">
-        <!-- X (rojo) -->
-        <a-entity line="start: 0 0 0; end: 0.2 0 0; color: red"></a-entity>
-        <!-- Y (verde) -->
-        <a-entity line="start: 0 0 0; end: 0 0.2 0; color: green"></a-entity>
-        <!-- Z (azul) -->
-        <a-entity line="start: 0 0 0; end: 0 0 0.2; color: blue"></a-entity>
+          <a-entity line="start: 0 0 0; end: 0.2 0 0; color: red"></a-entity>
+          <a-entity line="start: 0 0 0; end: 0 0.2 0; color: green"></a-entity>
+          <a-entity line="start: 0 0 0; end: 0 0 0.2; color: blue"></a-entity>
+        </a-entity>
+
       </a-entity>
     </a-scene>
 
@@ -79,10 +81,8 @@
           this.wheel1 = null;
           this.wheel2 = null;
 
-          // posiciones base para limitar relativo (para que no dependan de 0)
           this.baseWheel1X = 0;
           this.baseWheel2X = 0;
-          this.baseTapaRotX = 0;
 
           this.selected = null; // "TAPA" | "W1" | "W2" | null
           this.dragging = false;
@@ -102,8 +102,9 @@
 
           this.el.addEventListener("model-loaded", this.onModelLoaded);
 
+          // OJO: para pinch zoom en mobile, es mejor passive:false en touchmove
           window.addEventListener("touchstart", this.onTouchStart, { passive: true });
-          window.addEventListener("touchmove",  this.onTouchMove,  { passive: true });
+          window.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
           window.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
         },
 
@@ -124,21 +125,19 @@
         },
 
         onModelLoaded: function () {
-          this.rotTarget = this.el.object3D; // objeto que rotaremos con quaternion
+          // target a rotar con ejes locales (incremental)
+          this.rotTarget = this.el.object3D;
+
           this.modelRoot = this.el.getObject3D("mesh");
           if (!this.modelRoot) return;
 
-          // Busca nodos por nombre
           this.tapa   = this.modelRoot.getObjectByName(this.data.tapaNode);
           this.wheel1 = this.modelRoot.getObjectByName(this.data.wheel1Node);
           this.wheel2 = this.modelRoot.getObjectByName(this.data.wheel2Node);
 
-          // Guarda bases
           if (this.wheel1) this.baseWheel1X = this.wheel1.position.x;
           if (this.wheel2) this.baseWheel2X = this.wheel2.position.x;
-          if (this.tapa)   this.baseTapaRotX = this.tapa.rotation.x; // en radianes
 
-          // Debug si no encuentra algo
           if (!this.tapa || !this.wheel1 || !this.wheel2) {
             console.warn("No encontré uno o más nodos. Verifica nombres exactos:", {
               tapaNode: this.data.tapaNode,
@@ -201,14 +200,17 @@
             this.prevX = t.clientX;
             this.prevY = t.clientY;
 
-            this.selected = this.pickPart(t.clientX, t.clientY); // "TAPA"|"W1"|"W2"|null
+            this.selected = this.pickPart(t.clientX, t.clientY);
           }
         },
 
         onTouchMove: function (event) {
           if (!this.modelRoot) return;
 
-          // 2 dedos: zoom
+          // evita que el navegador haga scroll/zoom de la página durante el pinch
+          if (event.cancelable) event.preventDefault();
+
+          // 2 dedos: zoom del modelo completo
           if (this.pinching && event.touches.length === 2) {
             const dist = this.touchDistance(event.touches[0], event.touches[1]);
             const delta = dist - this.prevPinchDist;
@@ -222,11 +224,12 @@
               y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
               z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
             };
+
             this.el.setAttribute("scale", next);
             return;
           }
 
-          // 1 dedo: interactuar o rotar
+          // 1 dedo
           if (this.dragging && event.touches.length === 1) {
             const t = event.touches[0];
             const x = t.clientX;
@@ -238,9 +241,8 @@
             this.prevX = x;
             this.prevY = y;
 
-            // TAPA: arrastrar arriba/abajo => rotación en X
+            // TAPA: abrir/cerrar (rotación en X local de la tapa)
             if (this.selected === "TAPA" && this.tapa) {
-              // dy negativo = dedo sube -> abre (aumenta ángulo)
               const deltaDeg = (-dy) * this.data.tapaRotateSpeed;
               const currentDeg = THREE.MathUtils.radToDeg(this.tapa.rotation.x);
               const nextDeg = this.clamp(currentDeg + deltaDeg, this.data.tapaMinX, this.data.tapaMaxX);
@@ -251,7 +253,7 @@
             // RUEDA 1: solo derecha (X+)
             if (this.selected === "W1" && this.wheel1) {
               const delta = dx * this.data.wheelMoveSpeed;
-              const onlyRight = Math.max(0, delta); // bloquea izquierda
+              const onlyRight = Math.max(0, delta);
               const min = this.baseWheel1X;
               const max = this.baseWheel1X + this.data.wheelRange;
               this.wheel1.position.x = this.clamp(this.wheel1.position.x + onlyRight, min, max);
@@ -261,34 +263,22 @@
             // RUEDA 2: solo izquierda (X-)
             if (this.selected === "W2" && this.wheel2) {
               const delta = dx * this.data.wheelMoveSpeed;
-              const onlyLeft = Math.min(0, delta); // bloquea derecha
+              const onlyLeft = Math.min(0, delta);
               const min = this.baseWheel2X - this.data.wheelRange;
               const max = this.baseWheel2X;
               this.wheel2.position.x = this.clamp(this.wheel2.position.x + onlyLeft, min, max);
               return;
             }
 
-            // Si no tocaste nada interactivo: rota todo el modelo
-           // ✅ Rotación incremental en ejes locales (respeta la perspectiva actual)
+            // ROTAR TODO el modelo con ejes locales (según perspectiva actual)
             const obj = this.rotTarget || this.el.object3D;
-            
-            // Sensibilidad en radianes (A-Frame rotation está en grados, pero quaternion usa rad)
-            const s = 0.005 * this.data.rotateSpeed; // ajusta si quieres más/menos
-            
-            // Queremos:
-            // - dy -> pitch (eje X LOCAL del modelo)
-            // - dx -> yaw   (eje Y LOCAL del modelo)
-            // (si luego quieres roll: eje Z local)
-            
-            const pitch = dy * s;   // arriba/abajo
-            const yaw   = dx * s;   // izq/der
-            
-            // Rotar en el sistema LOCAL del objeto:
+            const s = 0.005 * this.data.rotateSpeed; // sensibilidad
+
+            const pitch = dy * s; // arriba/abajo
+            const yaw   = dx * s; // izq/der
+
             obj.rotateX(pitch);
             obj.rotateY(yaw);
-
-            });
-
           }
         },
 
@@ -310,9 +300,6 @@
     </script>
   </body>
 </html>
-
-
-
 
 
 
