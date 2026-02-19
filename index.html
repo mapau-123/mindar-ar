@@ -124,6 +124,7 @@
         },
 
         onModelLoaded: function () {
+          this.rotTarget = this.el.object3D; // objeto que rotaremos con quaternion
           this.modelRoot = this.el.getObject3D("mesh");
           if (!this.modelRoot) return;
 
@@ -268,21 +269,24 @@
             }
 
             // Si no tocaste nada interactivo: rota todo el modelo
-            const r = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+           // ✅ Rotación incremental en ejes locales (respeta la perspectiva actual)
+            const obj = this.rotTarget || this.el.object3D;
+            
+            // Sensibilidad en radianes (A-Frame rotation está en grados, pero quaternion usa rad)
+            const s = 0.005 * this.data.rotateSpeed; // ajusta si quieres más/menos
+            
+            // Queremos:
+            // - dy -> pitch (eje X LOCAL del modelo)
+            // - dx -> yaw   (eje Y LOCAL del modelo)
+            // (si luego quieres roll: eje Z local)
+            
+            const pitch = dy * s;   // arriba/abajo
+            const yaw   = dx * s;   // izq/der
+            
+            // Rotar en el sistema LOCAL del objeto:
+            obj.rotateX(pitch);
+            obj.rotateY(yaw);
 
-            // Arriba/abajo -> X (pitch)
-            const dRotX = -dy * this.data.rotateSpeed;
-            
-            // Izquierda/derecha -> Y (yaw)
-            const dRotY = dx * this.data.rotateSpeed;
-            
-            // (Opcional) Z lo dejas quieto para evitar el “roll”
-            const dRotZ = 0;
-            
-            this.el.setAttribute("rotation", {
-              x: r.x + dRotX,
-              y: r.y + dRotY,
-              z: r.z + dRotZ
             });
 
           }
@@ -306,6 +310,7 @@
     </script>
   </body>
 </html>
+
 
 
 
