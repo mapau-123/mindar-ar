@@ -316,16 +316,35 @@
               return;
             }
 
-            // ROTAR TODO el modelo (pivot) con ejes locales
+            // ROTAR TODO el modelo con base en la cámara (no en ejes iniciales)
             const obj = this.rotTarget || this.el.object3D;
             const s = 0.005 * this.data.rotateSpeed;
+            
+            const pitch = dy * s; // arrastrar arriba/abajo
+            const yaw   = dx * s; // arrastrar izq/der
+            
+            const cam = this.el.sceneEl.camera;
+            if (cam) {
+              // Ejes en mundo (dependen de hacia dónde mira la cámara)
+              const camWorldQuat = new THREE.Quaternion();
+              cam.getWorldQuaternion(camWorldQuat);
+            
+              const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camWorldQuat).normalize(); // eje X de cámara
+              const up    = new THREE.Vector3(0, 1, 0); // "arriba" global (más estable en AR)
+            
+              // Aplica rotación como cuaterniones (evita gimbal y respeta orientación actual)
+              const qYaw   = new THREE.Quaternion().setFromAxisAngle(up,   yaw);
+              const qPitch = new THREE.Quaternion().setFromAxisAngle(right, pitch);
+            
+              // Orden importante: primero yaw (mundo), luego pitch (cámara)
+              obj.quaternion.premultiply(qYaw);
+              obj.quaternion.premultiply(qPitch);
+            } else {
+              // fallback por si no hay cámara
+              obj.rotateX(pitch);
+              obj.rotateY(yaw);
+            }
 
-            const pitch = dy * s;
-            const yaw   = dx * s;
-
-            obj.rotateX(pitch);
-            obj.rotateY(yaw);
-          }
         },
 
         onTouchEnd: function (event) {
@@ -348,6 +367,7 @@
     </script>
   </body>
 </html>
+
 
 
 
