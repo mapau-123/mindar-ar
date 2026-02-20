@@ -22,21 +22,18 @@
           position="0 0 0"
           rotation="0 0 0"
           scale="2.5 2.5 2.5"
-          simple-pan-zoom="
-            panSpeed: 0.0015;
-            zoomSpeed: 0.002;
-          "
+          simple-rotate-zoom
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
     <script>
-        AFRAME.registerComponent("simple-pan-zoom", {
+        AFRAME.registerComponent("simple-rotate-zoom", {
           schema: {
-            panSpeed:  { type: "number", default: 0.0015 },
-            zoomSpeed: { type: "number", default: 0.002 },
-            minScale:  { type: "number", default: 0.8 },
-            maxScale:  { type: "number", default: 8.0 },
+            rotateSpeed: { type: "number", default: 0.005 },
+            zoomSpeed:   { type: "number", default: 0.002 },
+            minScale:    { type: "number", default: 0.8 },
+            maxScale:    { type: "number", default: 8.0 },
           },
         
           init: function () {
@@ -44,14 +41,13 @@
             this.pinching = false;
         
             this.prevX = 0;
-            this.prevY = 0;
             this.prevPinchDist = 0;
         
             this.onTouchStart = this.onTouchStart.bind(this);
             this.onTouchMove  = this.onTouchMove.bind(this);
             this.onTouchEnd   = this.onTouchEnd.bind(this);
         
-            // 🔥 Espera hasta que el canvas exista (MUY IMPORTANTE)
+            // Esperar a que el canvas exista
             const waitForCanvas = () => {
               if (this.el.sceneEl && this.el.sceneEl.canvas) {
                 const canvas = this.el.sceneEl.canvas;
@@ -90,7 +86,6 @@
               this.pinching = false;
               this.dragging = true;
               this.prevX = event.touches[0].clientX;
-              this.prevY = event.touches[0].clientY;
             }
           },
         
@@ -106,33 +101,28 @@
               const factor = 1 + (delta * this.data.zoomSpeed);
         
               const current = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
-              const next = {
+        
+              this.el.setAttribute("scale", {
                 x: this.clamp(current.x * factor, this.data.minScale, this.data.maxScale),
                 y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
                 z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
-              };
+              });
         
-              this.el.setAttribute("scale", next);
               return;
             }
         
-            // 🔥 PAN
+            // 🔥 ROTACIÓN HORIZONTAL
             if (this.dragging && event.touches.length === 1) {
               const x = event.touches[0].clientX;
-              const y = event.touches[0].clientY;
-        
               const dx = x - this.prevX;
-              const dy = y - this.prevY;
-        
               this.prevX = x;
-              this.prevY = y;
         
-              const pos = this.el.getAttribute("position") || { x: 0, y: 0, z: 0 };
+              const rotation = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
         
-              this.el.setAttribute("position", {
-                x: pos.x + dx * this.data.panSpeed,
-                y: pos.y - dy * this.data.panSpeed,
-                z: pos.z
+              this.el.setAttribute("rotation", {
+                x: rotation.x,
+                y: rotation.y + dx * this.data.rotateSpeed * 180,
+                z: rotation.z
               });
             }
           },
@@ -145,5 +135,6 @@
         </script>
   </body>
 </html>
+
 
 
