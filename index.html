@@ -280,9 +280,9 @@
             // --- TAPA: swipe vertical abre/cierra ---
             if (this.selected === "TAPA" && window.NODES && NODES.tapa) {
               const deltaDeg = (-dy) * this.data.tapaSwipeSpeed;
-              const minDeg = NODES.tapaBaseRotX;
-              const maxDeg = NODES.tapaBaseRotX + this.data.tapaMaxOpen;
-      
+              const maxDeg = NODES.tapaBaseRotX;
+              const minDeg = NODES.tapaBaseRotX - this.data.tapaMaxOpen;
+              
               NODES.tapaAngleX = this.clamp(NODES.tapaAngleX + deltaDeg, minDeg, maxDeg);
               NODES.tapa.rotation.x = THREE.MathUtils.degToRad(NODES.tapaAngleX);
               return;
@@ -336,6 +336,7 @@
       </script>
   </body>
 </html>
+
 
 
 
