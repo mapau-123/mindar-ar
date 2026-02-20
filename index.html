@@ -18,10 +18,13 @@
         <a-gltf-model
           id="modelo"
           src="./carromodelo2.glb"
-          position="0 0 0"
-          rotation="0 0 0"
           scale="2.5 2.5 2.5"
-          simple-rotate-zoom="tapaMaxOpen: 180;"
+          simple-rotate-zoom="
+            tapaMaxOpen: 180;
+            wheelRange: 0.20;
+            wheelMoveSpeed: 0.0025;
+            globalRotateSpeed: 1.2;
+          "
         ></a-gltf-model>
       </a-entity>
     </a-scene>
@@ -333,6 +336,7 @@
       </script>
   </body>
 </html>
+
 
 
 
