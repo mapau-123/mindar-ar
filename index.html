@@ -154,34 +154,11 @@
         if (event.touches.length === 0) this.dragging = false;
       }
     });
-
-    /* =======================================================
-       🔥 AQUÍ IMPRIMIMOS LOS NODOS DEL MODELO
-    ======================================================= */
-
-    AFRAME.registerComponent("nodos-debug", {
-      init: function () {
-        this.el.addEventListener("model-loaded", () => {
-    
-          const mesh = this.el.getObject3D("mesh");
-    
-          console.log("====================================");
-          console.log("=== NODOS DEL MODELO CARRO ===");
-          console.log("====================================");
-    
-          mesh.traverse((node) => {
-            if (node.name) {
-              console.log("NODE:", node.name, "| TYPE:", node.type);
-            }
-          });
-    
-        });
-      }
-    });
       
     </script>
   </body>
 </html>
+
 
 
 
