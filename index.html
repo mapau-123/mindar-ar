@@ -22,6 +22,7 @@
           rotation="0 0 0"
           scale="2.5 2.5 2.5"
           simple-rotate-zoom
+          nodos-debug
         ></a-gltf-model>
       </a-entity>
     </a-scene>
@@ -132,28 +133,28 @@
        🔥 AQUÍ IMPRIMIMOS LOS NODOS DEL MODELO
     ======================================================= */
 
-    window.addEventListener("load", function () {
-
-      const modelEl = document.querySelector("#modelo");
-
-      modelEl.addEventListener("model-loaded", function () {
-
-        const mesh = modelEl.getObject3D("mesh");
-
-        console.log("====================================");
-        console.log("=== NODOS DEL MODELO CARRO ===");
-        console.log("====================================");
-
-        mesh.traverse(function (node) {
-          if (node.name) {
-            console.log("NODE:", node.name, "| TYPE:", node.type);
-          }
+    AFRAME.registerComponent("nodos-debug", {
+      init: function () {
+        this.el.addEventListener("model-loaded", () => {
+    
+          const mesh = this.el.getObject3D("mesh");
+    
+          console.log("====================================");
+          console.log("=== NODOS DEL MODELO CARRO ===");
+          console.log("====================================");
+    
+          mesh.traverse((node) => {
+            if (node.name) {
+              console.log("NODE:", node.name, "| TYPE:", node.type);
+            }
+          });
+    
         });
-
-      });
-
+      }
     });
+      
     </script>
   </body>
 </html>
+
 
