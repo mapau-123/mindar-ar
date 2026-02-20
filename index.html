@@ -64,38 +64,46 @@
         });
       });
 
-      // =========================
-      // 2) Control: Zoom + Tapa
-      // =========================
+       
       AFRAME.registerComponent("simple-rotate-zoom", {
         schema: {
-          rotateSpeed: { type: "number", default: 0.005 }, // rotación del modelo (horizontal)
+          rotateSpeed: { type: "number", default: 0.005 }, // rotación del modelo si tocas "nada"
           zoomSpeed:   { type: "number", default: 0.002 },
           minScale:    { type: "number", default: 0.8 },
-          maxScale:    { type: "number", default: 20.0 },
-
+          maxScale:    { type: "number", default: 8.0 },
+      
           // tapa
-          tapaSwipeSpeed: { type: "number", default: 0.25 }, // grados por pixel aprox
-          tapaMaxOpen:    { type: "number", default: 180 }   // grados extra sobre cerrado
+          tapaSwipeSpeed: { type: "number", default: 0.25 }, // grados por pixel
+          tapaMaxOpen:    { type: "number", default: 180 },
+      
+          // ruedas
+          wheelMoveSpeed: { type: "number", default: 0.0015 }, // movimiento por pixel
+          wheelRange:     { type: "number", default: 0.15 }    // rango total permitido en X
         },
-
+      
         init: function () {
           this.dragging = false;
           this.pinching = false;
-
+      
           this.prevX = 0;
           this.prevY = 0;
           this.prevPinchDist = 0;
-
+      
+          this.selected = null; // "TAPA" | "W1" | "W2" | null
+      
+          // Para pick
+          this.raycaster = new THREE.Raycaster();
+          this.ndc = new THREE.Vector2();
+          this.modelMeshRoot = null;
+      
           this.onTouchStart = this.onTouchStart.bind(this);
           this.onTouchMove  = this.onTouchMove.bind(this);
           this.onTouchEnd   = this.onTouchEnd.bind(this);
-
-          // Esperar canvas de A-Frame
+      
+          // Esperar canvas + mesh
           const waitForCanvas = () => {
             if (this.el.sceneEl && this.el.sceneEl.canvas) {
               const canvas = this.el.sceneEl.canvas;
-
               canvas.addEventListener("touchstart", this.onTouchStart, { passive: true });
               canvas.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
               canvas.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
@@ -104,88 +112,161 @@
             }
           };
           waitForCanvas();
+      
+          // Capturar root mesh para raycast cuando cargue el glb
+          this.el.addEventListener("model-loaded", () => {
+            this.modelMeshRoot = this.el.getObject3D("mesh");
+          });
         },
-
+      
         clamp: function (v, min, max) {
           return Math.max(min, Math.min(max, v));
         },
-
+      
         touchDistance: function (t1, t2) {
           const dx = t2.clientX - t1.clientX;
           const dy = t2.clientY - t1.clientY;
           return Math.hypot(dx, dy);
         },
-
+      
+        // Detecta si tocaste tapa/ruedas (por ancestro)
+        pickPart: function (clientX, clientY) {
+          if (!this.modelMeshRoot) return null;
+      
+          const sceneEl = this.el.sceneEl;
+          const camera = sceneEl.camera;
+          const renderer = sceneEl.renderer;
+          if (!camera || !renderer) return null;
+      
+          const rect = renderer.domElement.getBoundingClientRect();
+          this.ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+          this.ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+      
+          this.raycaster.setFromCamera(this.ndc, camera);
+          const hits = this.raycaster.intersectObject(this.modelMeshRoot, true);
+          if (!hits.length) return null;
+      
+          const hitObj = hits[0].object;
+      
+          const hasAncestorNamed = (obj, name) => {
+            let o = obj;
+            while (o) {
+              if (o.name === name) return true;
+              o = o.parent;
+            }
+            return false;
+          };
+      
+          // Usa los nombres exactos que ya confirmaste
+          if (hasAncestorNamed(hitObj, "tapa_v11"))   return "TAPA";
+          if (hasAncestorNamed(hitObj, "rueda1_v11")) return "W1";
+          if (hasAncestorNamed(hitObj, "rueda2_v11")) return "W2";
+          return null;
+        },
+      
         onTouchStart: function (event) {
           if (event.touches.length === 2) {
             this.pinching = true;
             this.dragging = false;
+            this.selected = null;
             this.prevPinchDist = this.touchDistance(event.touches[0], event.touches[1]);
             return;
           }
-
+      
           if (event.touches.length === 1) {
             this.pinching = false;
             this.dragging = true;
-            this.prevX = event.touches[0].clientX;
-            this.prevY = event.touches[0].clientY;
+      
+            const t = event.touches[0];
+            this.prevX = t.clientX;
+            this.prevY = t.clientY;
+      
+            // Seleccionar parte tocada (si hay mesh cargado)
+            this.selected = this.pickPart(t.clientX, t.clientY);
           }
         },
-
+      
         onTouchMove: function (event) {
           if (event.cancelable) event.preventDefault();
-
-          // =================
-          // A) PINCH ZOOM (2 dedos) -> escala TODO el modelo
-          // =================
+      
+          // =========================
+          // 2 dedos -> ZOOM (modelo completo)
+          // =========================
           if (this.pinching && event.touches.length === 2) {
             const dist = this.touchDistance(event.touches[0], event.touches[1]);
             const delta = dist - this.prevPinchDist;
             this.prevPinchDist = dist;
-
+      
             const factor = 1 + (delta * this.data.zoomSpeed);
             const current = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
-
+      
             this.el.setAttribute("scale", {
               x: this.clamp(current.x * factor, this.data.minScale, this.data.maxScale),
               y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
               z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
             });
-
             return;
           }
-
-          // =================
-          // B) 1 dedo: tapa (vertical) / modelo (horizontal)
-          // =================
+      
+          // =========================
+          // 1 dedo
+          // =========================
           if (this.dragging && event.touches.length === 1) {
-            const x = event.touches[0].clientX;
-            const y = event.touches[0].clientY;
-
+            const t = event.touches[0];
+            const x = t.clientX;
+            const y = t.clientY;
+      
             const dx = x - this.prevX;
             const dy = y - this.prevY;
-
+      
             this.prevX = x;
             this.prevY = y;
-
-            // Decide gesto: si es más vertical -> tapa, si es más horizontal -> rotar modelo
+      
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
-
-            // --- TAPA (cofre) ---
-            if (absDy > absDx && window.NODES && NODES.tapa) {
+      
+            // ---- TAPA: swipe vertical (solo si tocaste la tapa) ----
+            if (this.selected === "TAPA" && window.NODES && NODES.tapa && absDy > absDx) {
               const deltaDeg = (-dy) * this.data.tapaSwipeSpeed;
-
+      
               const minDeg = NODES.tapaBaseRotX;
               const maxDeg = NODES.tapaBaseRotX + this.data.tapaMaxOpen;
-
+      
               NODES.tapaAngleX = this.clamp(NODES.tapaAngleX + deltaDeg, minDeg, maxDeg);
               NODES.tapa.rotation.x = THREE.MathUtils.degToRad(NODES.tapaAngleX);
               return;
             }
-
-            // --- ROTAR MODELO (horizontal) ---
-            if (absDx >= absDy) {
+      
+            // ---- RUEDA 1: solo izquierda (X-) ----
+            if (this.selected === "W1" && window.NODES && NODES.rueda1 && absDx >= absDy) {
+              // dx negativo = izquierda, dx positivo = derecha
+              const onlyLeft = Math.min(0, dx) * this.data.wheelMoveSpeed;
+      
+              // Guardar baseX la primera vez
+              if (NODES.rueda1BaseX === undefined) NODES.rueda1BaseX = NODES.rueda1.position.x;
+      
+              const minX = NODES.rueda1BaseX - this.data.wheelRange; // solo hacia la izquierda
+              const maxX = NODES.rueda1BaseX;
+      
+              NODES.rueda1.position.x = this.clamp(NODES.rueda1.position.x + onlyLeft, minX, maxX);
+              return;
+            }
+      
+            // ---- RUEDA 2: solo derecha (X+) ----
+            if (this.selected === "W2" && window.NODES && NODES.rueda2 && absDx >= absDy) {
+              const onlyRight = Math.max(0, dx) * this.data.wheelMoveSpeed;
+      
+              if (NODES.rueda2BaseX === undefined) NODES.rueda2BaseX = NODES.rueda2.position.x;
+      
+              const minX = NODES.rueda2BaseX;
+              const maxX = NODES.rueda2BaseX + this.data.wheelRange; // solo hacia la derecha
+      
+              NODES.rueda2.position.x = this.clamp(NODES.rueda2.position.x + onlyRight, minX, maxX);
+              return;
+            }
+      
+            // ---- Si no tocaste nada especial: rota el modelo horizontalmente ----
+            if (!this.selected && absDx >= absDy) {
               const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
               this.el.setAttribute("rotation", {
                 x: rot.x,
@@ -195,21 +276,24 @@
             }
           }
         },
-
+      
         onTouchEnd: function (event) {
           if (event.touches.length < 2) this.pinching = false;
-          if (event.touches.length === 0) this.dragging = false;
-
-          // si queda 1 dedo, resetea prev para que no “salte”
+          if (event.touches.length === 0) {
+            this.dragging = false;
+            this.selected = null;
+          }
+      
           if (event.touches.length === 1) {
             this.prevX = event.touches[0].clientX;
             this.prevY = event.touches[0].clientY;
           }
         }
       });
-    </script>
+      </script>
   </body>
 </html>
+
 
 
 
