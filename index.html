@@ -43,6 +43,8 @@
         this.prevX = 0;
         this.prevPinchDist = 0;
 
+        this.prevY = 0;
+
         this.onTouchStart = this.onTouchStart.bind(this);
         this.onTouchMove  = this.onTouchMove.bind(this);
         this.onTouchEnd   = this.onTouchEnd.bind(this);
@@ -74,6 +76,9 @@
       },
 
       onTouchStart: function (event) {
+        this.prevX = event.touches[0].clientX;
+        this.prevY = event.touches[0].clientY;
+        
         if (event.touches.length === 2) {
           this.pinching = true;
           this.dragging = false;
@@ -89,24 +94,24 @@
       },
 
       onTouchMove: function (event) {
-        if (event.cancelable) event.preventDefault();
-
-        if (this.pinching && event.touches.length === 2) {
-          const dist = this.touchDistance(event.touches[0], event.touches[1]);
-          const delta = dist - this.prevPinchDist;
-          this.prevPinchDist = dist;
-
-          const factor = 1 + (delta * this.data.zoomSpeed);
-          const current = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
-
-          this.el.setAttribute("scale", {
-            x: this.clamp(current.x * factor, this.data.minScale, this.data.maxScale),
-            y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
-            z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
-          });
-
+        // --- ABRIR/CERRAR TAPA (tipo cofre) con swipe vertical ---
+        if (window.NODES && NODES.tapa) {
+          const y = event.touches[0].clientY;
+          const dy = y - this.prevY;
+          this.prevY = y;
+        
+          const speed = 0.25;
+          const deltaDeg = (-dy) * speed;
+        
+          const minDeg = NODES.tapaBaseRotX;
+          const maxDeg = NODES.tapaBaseRotX + 110;
+        
+          NODES.tapaAngleX = Math.max(minDeg, Math.min(maxDeg, NODES.tapaAngleX + deltaDeg));
+          NODES.tapa.rotation.x = THREE.MathUtils.degToRad(NODES.tapaAngleX);
+        
           return;
         }
+      }
 
         if (this.dragging && event.touches.length === 1) {
           const x = event.touches[0].clientX;
@@ -136,6 +141,15 @@
       tapa: null
     };
     
+    window.NODES = {
+      cuerpo: null,
+      rueda1: null,
+      rueda2: null,
+      tapa: null,
+      tapaBaseRotX: 0,
+      tapaAngleX: 0
+    };
+    
     window.addEventListener("load", () => {
       const modelEl = document.querySelector("#modelo");
     
@@ -147,17 +161,21 @@
         NODES.rueda2 = root.getObjectByName("rueda2_v11");
         NODES.tapa   = root.getObjectByName("tapa_v11");
     
+        // guardar rotación de tapa al inicio (cerrada)
+        if (NODES.tapa) {
+          NODES.tapaBaseRotX = THREE.MathUtils.radToDeg(NODES.tapa.rotation.x);
+          NODES.tapaAngleX = NODES.tapaBaseRotX;
+        }
+    
         console.log("=== NODOS LISTOS ===");
-        console.log("cuerpo:", NODES.cuerpo);
-        console.log("rueda1:", NODES.rueda1);
-        console.log("rueda2:", NODES.rueda2);
-        console.log("tapa:",   NODES.tapa);
+        console.log("tapa:", NODES.tapa?.name, "|", NODES.tapa?.type);
       });
     });
-      
+          
     </script>
   </body>
 </html>
+
 
 
 
