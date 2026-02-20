@@ -22,162 +22,192 @@
           rotation="0 0 0"
           scale="2.5 2.5 2.5"
           simple-rotate-zoom
-          nodos-debug
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
     <script>
-    AFRAME.registerComponent("simple-rotate-zoom", {
-      schema: {
-        rotateSpeed: { type: "number", default: 0.005 },
-        zoomSpeed:   { type: "number", default: 0.002 },
-        minScale:    { type: "number", default: 0.8 },
-        maxScale:    { type: "number", default: 8.0 },
-      },
+      // =========================
+      // 1) Captura de nodos GLB
+      // =========================
+      window.NODES = {
+        cuerpo: null,
+        rueda1: null,
+        rueda2: null,
+        tapa: null,
 
-      init: function () {
-        this.dragging = false;
-        this.pinching = false;
+        tapaBaseRotX: 0, // grados
+        tapaAngleX: 0    // grados
+      };
 
-        this.prevX = 0;
-        this.prevPinchDist = 0;
+      window.addEventListener("load", () => {
+        const modelEl = document.querySelector("#modelo");
 
-        this.prevY = 0;
+        modelEl.addEventListener("model-loaded", () => {
+          const root = modelEl.object3D;
 
-        this.onTouchStart = this.onTouchStart.bind(this);
-        this.onTouchMove  = this.onTouchMove.bind(this);
-        this.onTouchEnd   = this.onTouchEnd.bind(this);
+          NODES.cuerpo = root.getObjectByName("cuerpo_v11");
+          NODES.rueda1 = root.getObjectByName("rueda1_v11");
+          NODES.rueda2 = root.getObjectByName("rueda2_v11");
+          NODES.tapa   = root.getObjectByName("tapa_v11");
 
-        const waitForCanvas = () => {
-          if (this.el.sceneEl && this.el.sceneEl.canvas) {
-            const canvas = this.el.sceneEl.canvas;
-
-            canvas.addEventListener("touchstart", this.onTouchStart, { passive: true });
-            canvas.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
-            canvas.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
-
-          } else {
-            setTimeout(waitForCanvas, 100);
+          if (NODES.tapa) {
+            NODES.tapaBaseRotX = THREE.MathUtils.radToDeg(NODES.tapa.rotation.x);
+            NODES.tapaAngleX = NODES.tapaBaseRotX;
           }
-        };
 
-        waitForCanvas();
-      },
-
-      clamp: function (v, min, max) {
-        return Math.max(min, Math.min(max, v));
-      },
-
-      touchDistance: function (t1, t2) {
-        const dx = t2.clientX - t1.clientX;
-        const dy = t2.clientY - t1.clientY;
-        return Math.hypot(dx, dy);
-      },
-
-      onTouchStart: function (event) {
-        this.prevX = event.touches[0].clientX;
-        this.prevY = event.touches[0].clientY;
-        
-        if (event.touches.length === 2) {
-          this.pinching = true;
-          this.dragging = false;
-          this.prevPinchDist = this.touchDistance(event.touches[0], event.touches[1]);
-          return;
-        }
-
-        if (event.touches.length === 1) {
-          this.pinching = false;
-          this.dragging = true;
-          this.prevX = event.touches[0].clientX;
-        }
-      },
-
-      onTouchMove: function (event) {
-        // --- ABRIR/CERRAR TAPA (tipo cofre) con swipe vertical ---
-        if (window.NODES && NODES.tapa) {
-          const y = event.touches[0].clientY;
-          const dy = y - this.prevY;
-          this.prevY = y;
-        
-          const speed = 0.25;
-          const deltaDeg = (-dy) * speed;
-        
-          const minDeg = NODES.tapaBaseRotX;
-          const maxDeg = NODES.tapaBaseRotX + 110;
-        
-          NODES.tapaAngleX = Math.max(minDeg, Math.min(maxDeg, NODES.tapaAngleX + deltaDeg));
-          NODES.tapa.rotation.x = THREE.MathUtils.degToRad(NODES.tapaAngleX);
-        
-          return;
-        }
-      }
-
-        if (this.dragging && event.touches.length === 1) {
-          const x = event.touches[0].clientX;
-          const dx = x - this.prevX;
-          this.prevX = x;
-
-          const rotation = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
-
-          this.el.setAttribute("rotation", {
-            x: rotation.x,
-            y: rotation.y + dx * this.data.rotateSpeed * 180,
-            z: rotation.z
-          });
-        }
-      },
-
-      onTouchEnd: function (event) {
-        if (event.touches.length < 2) this.pinching = false;
-        if (event.touches.length === 0) this.dragging = false;
-      }
-    });
-
-      let NODES = {
-      cuerpo: null,
-      rueda1: null,
-      rueda2: null,
-      tapa: null
-    };
-    
-    window.NODES = {
-      cuerpo: null,
-      rueda1: null,
-      rueda2: null,
-      tapa: null,
-      tapaBaseRotX: 0,
-      tapaAngleX: 0
-    };
-    
-    window.addEventListener("load", () => {
-      const modelEl = document.querySelector("#modelo");
-    
-      modelEl.addEventListener("model-loaded", () => {
-        const root = modelEl.object3D;
-    
-        NODES.cuerpo = root.getObjectByName("cuerpo_v11");
-        NODES.rueda1 = root.getObjectByName("rueda1_v11");
-        NODES.rueda2 = root.getObjectByName("rueda2_v11");
-        NODES.tapa   = root.getObjectByName("tapa_v11");
-    
-        // guardar rotación de tapa al inicio (cerrada)
-        if (NODES.tapa) {
-          NODES.tapaBaseRotX = THREE.MathUtils.radToDeg(NODES.tapa.rotation.x);
-          NODES.tapaAngleX = NODES.tapaBaseRotX;
-        }
-    
-        console.log("=== NODOS LISTOS ===");
-        console.log("tapa:", NODES.tapa?.name, "|", NODES.tapa?.type);
+          console.log("=== NODOS LISTOS ===");
+          console.log("cuerpo:", NODES.cuerpo?.name, NODES.cuerpo?.type);
+          console.log("rueda1:", NODES.rueda1?.name, NODES.rueda1?.type);
+          console.log("rueda2:", NODES.rueda2?.name, NODES.rueda2?.type);
+          console.log("tapa:",   NODES.tapa?.name,   NODES.tapa?.type);
+        });
       });
-    });
-          
+
+      // =========================
+      // 2) Control: Zoom + Tapa
+      // =========================
+      AFRAME.registerComponent("simple-rotate-zoom", {
+        schema: {
+          rotateSpeed: { type: "number", default: 0.005 }, // rotación del modelo (horizontal)
+          zoomSpeed:   { type: "number", default: 0.002 },
+          minScale:    { type: "number", default: 0.8 },
+          maxScale:    { type: "number", default: 8.0 },
+
+          // tapa
+          tapaSwipeSpeed: { type: "number", default: 0.25 }, // grados por pixel aprox
+          tapaMaxOpen:    { type: "number", default: 110 }   // grados extra sobre cerrado
+        },
+
+        init: function () {
+          this.dragging = false;
+          this.pinching = false;
+
+          this.prevX = 0;
+          this.prevY = 0;
+          this.prevPinchDist = 0;
+
+          this.onTouchStart = this.onTouchStart.bind(this);
+          this.onTouchMove  = this.onTouchMove.bind(this);
+          this.onTouchEnd   = this.onTouchEnd.bind(this);
+
+          // Esperar canvas de A-Frame
+          const waitForCanvas = () => {
+            if (this.el.sceneEl && this.el.sceneEl.canvas) {
+              const canvas = this.el.sceneEl.canvas;
+
+              canvas.addEventListener("touchstart", this.onTouchStart, { passive: true });
+              canvas.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
+              canvas.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
+            } else {
+              setTimeout(waitForCanvas, 100);
+            }
+          };
+          waitForCanvas();
+        },
+
+        clamp: function (v, min, max) {
+          return Math.max(min, Math.min(max, v));
+        },
+
+        touchDistance: function (t1, t2) {
+          const dx = t2.clientX - t1.clientX;
+          const dy = t2.clientY - t1.clientY;
+          return Math.hypot(dx, dy);
+        },
+
+        onTouchStart: function (event) {
+          if (event.touches.length === 2) {
+            this.pinching = true;
+            this.dragging = false;
+            this.prevPinchDist = this.touchDistance(event.touches[0], event.touches[1]);
+            return;
+          }
+
+          if (event.touches.length === 1) {
+            this.pinching = false;
+            this.dragging = true;
+            this.prevX = event.touches[0].clientX;
+            this.prevY = event.touches[0].clientY;
+          }
+        },
+
+        onTouchMove: function (event) {
+          if (event.cancelable) event.preventDefault();
+
+          // =================
+          // A) PINCH ZOOM (2 dedos) -> escala TODO el modelo
+          // =================
+          if (this.pinching && event.touches.length === 2) {
+            const dist = this.touchDistance(event.touches[0], event.touches[1]);
+            const delta = dist - this.prevPinchDist;
+            this.prevPinchDist = dist;
+
+            const factor = 1 + (delta * this.data.zoomSpeed);
+            const current = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
+
+            this.el.setAttribute("scale", {
+              x: this.clamp(current.x * factor, this.data.minScale, this.data.maxScale),
+              y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
+              z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
+            });
+
+            return;
+          }
+
+          // =================
+          // B) 1 dedo: tapa (vertical) / modelo (horizontal)
+          // =================
+          if (this.dragging && event.touches.length === 1) {
+            const x = event.touches[0].clientX;
+            const y = event.touches[0].clientY;
+
+            const dx = x - this.prevX;
+            const dy = y - this.prevY;
+
+            this.prevX = x;
+            this.prevY = y;
+
+            // Decide gesto: si es más vertical -> tapa, si es más horizontal -> rotar modelo
+            const absDx = Math.abs(dx);
+            const absDy = Math.abs(dy);
+
+            // --- TAPA (cofre) ---
+            if (absDy > absDx && window.NODES && NODES.tapa) {
+              const deltaDeg = (-dy) * this.data.tapaSwipeSpeed;
+
+              const minDeg = NODES.tapaBaseRotX;
+              const maxDeg = NODES.tapaBaseRotX + this.data.tapaMaxOpen;
+
+              NODES.tapaAngleX = this.clamp(NODES.tapaAngleX + deltaDeg, minDeg, maxDeg);
+              NODES.tapa.rotation.x = THREE.MathUtils.degToRad(NODES.tapaAngleX);
+              return;
+            }
+
+            // --- ROTAR MODELO (horizontal) ---
+            if (absDx >= absDy) {
+              const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+              this.el.setAttribute("rotation", {
+                x: rot.x,
+                y: rot.y + dx * this.data.rotateSpeed * 180,
+                z: rot.z
+              });
+            }
+          }
+        },
+
+        onTouchEnd: function (event) {
+          if (event.touches.length < 2) this.pinching = false;
+          if (event.touches.length === 0) this.dragging = false;
+
+          // si queda 1 dedo, resetea prev para que no “salte”
+          if (event.touches.length === 1) {
+            this.prevX = event.touches[0].clientX;
+            this.prevY = event.touches[0].clientY;
+          }
+        }
+      });
     </script>
   </body>
 </html>
-
-
-
-
-
 
