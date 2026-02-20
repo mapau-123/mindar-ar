@@ -39,8 +39,11 @@
         rueda2: null,
         tapa: null,
 
-        tapaBaseRotX: 0, // grados
-        tapaAngleX: 0    // grados
+        // tapa (nuevo sistema)
+        tapaAxis: "x",    // eje de bisagra (normalmente "x"; si no, prueba "z")
+        tapaDir: -1,      // ✅ CAMBIA EL SENTIDO: -1 abre hacia el otro lado (adelante)
+        tapaBaseRot: 0,   // grados (rotación cuando está cerrada)
+        tapaOpen: 0       // grados (0..tapaMaxOpen)
       };
 
       window.addEventListener("load", () => {
@@ -54,9 +57,11 @@
           NODES.rueda2 = root.getObjectByName("rueda2_v11");
           NODES.tapa   = root.getObjectByName("tapa_v11");
 
+          // Guardar rotación base de tapa
           if (NODES.tapa) {
-            NODES.tapaBaseRotX = THREE.MathUtils.radToDeg(NODES.tapa.rotation.x);
-            NODES.tapaAngleX = NODES.tapaBaseRotX;
+            const ax = NODES.tapaAxis; // "x" o "z"
+            NODES.tapaBaseRot = THREE.MathUtils.radToDeg(NODES.tapa.rotation[ax]);
+            NODES.tapaOpen = 0;
           }
 
           console.log("=== NODOS LISTOS ===");
@@ -64,54 +69,49 @@
           console.log("rueda1:", NODES.rueda1?.name, NODES.rueda1?.type);
           console.log("rueda2:", NODES.rueda2?.name, NODES.rueda2?.type);
           console.log("tapa:",   NODES.tapa?.name,   NODES.tapa?.type);
+          console.log("tapaAxis:", NODES.tapaAxis, "tapaDir:", NODES.tapaDir);
         });
       });
 
-       
       AFRAME.registerComponent("simple-rotate-zoom", {
         schema: {
           // GLOBAL (2 dedos)
           zoomSpeed:   { type: "number", default: 0.002 },
           minScale:    { type: "number", default: 0.8 },
           maxScale:    { type: "number", default: 8.0 },
-          globalRotateSpeed: { type: "number", default: 1.0 }, // multiplicador del "twist" con 2 dedos
-      
+          globalRotateSpeed: { type: "number", default: 1.0 },
+
           // TAPA (1 dedo)
-          tapaSwipeSpeed: { type: "number", default: 0.25 }, // grados por pixel
+          tapaSwipeSpeed: { type: "number", default: 0.25 },
           tapaMaxOpen:    { type: "number", default: 180 },
-      
+
           // RUEDAS (1 dedo)
-          wheelMoveSpeed: { type: "number", default: 0.0015 }, // unidades por pixel
-          wheelRange:     { type: "number", default: 0.15 },   // rango permitido
-      
-          // CUERPO (1 dedo) - opcional: rotación local del cuerpo con swipe horizontal
-          cuerpoRotateSpeed: { type: "number", default: 0.25 }  // grados por pixel
+          wheelMoveSpeed: { type: "number", default: 0.0015 },
+          wheelRange:     { type: "number", default: 0.15 },
+
+          // CUERPO (1 dedo)
+          cuerpoRotateSpeed: { type: "number", default: 0.25 }
         },
-      
+
         init: function () {
-          this.mode = null; // "GLOBAL" | "PART" | null
-      
-          // estados touch
+          this.mode = null;
+
           this.prevX = 0;
           this.prevY = 0;
-      
-          // pinch + twist (2 dedos)
+
           this.prevPinchDist = 0;
           this.prevTwistAngle = 0;
-      
-          // selección parte (1 dedo)
-          this.selected = null; // "TAPA" | "W1" | "W2" | "CUERPO" | null
-      
-          // raycast
+
+          this.selected = null;
+
           this.raycaster = new THREE.Raycaster();
           this.ndc = new THREE.Vector2();
           this.modelMeshRoot = null;
-      
+
           this.onTouchStart = this.onTouchStart.bind(this);
           this.onTouchMove  = this.onTouchMove.bind(this);
           this.onTouchEnd   = this.onTouchEnd.bind(this);
-      
-          // esperar canvas
+
           const waitForCanvas = () => {
             if (this.el.sceneEl && this.el.sceneEl.canvas) {
               const canvas = this.el.sceneEl.canvas;
@@ -123,48 +123,46 @@
             }
           };
           waitForCanvas();
-      
-          // para raycast
+
           this.el.addEventListener("model-loaded", () => {
             this.modelMeshRoot = this.el.getObject3D("mesh");
           });
         },
-      
+
         clamp: function (v, min, max) {
           return Math.max(min, Math.min(max, v));
         },
-      
+
         touchDistance: function (t1, t2) {
           const dx = t2.clientX - t1.clientX;
           const dy = t2.clientY - t1.clientY;
           return Math.hypot(dx, dy);
         },
-      
+
         twistAngleRad: function (t1, t2) {
           const dx = t2.clientX - t1.clientX;
           const dy = t2.clientY - t1.clientY;
           return Math.atan2(dy, dx);
         },
-      
-        // ✅ selección por referencia real (no por nombre) -> ultra robusto
+
         pickPart: function (clientX, clientY) {
           if (!this.modelMeshRoot || !window.NODES) return null;
-      
+
           const sceneEl = this.el.sceneEl;
           const camera = sceneEl.camera;
           const renderer = sceneEl.renderer;
           if (!camera || !renderer) return null;
-      
+
           const rect = renderer.domElement.getBoundingClientRect();
           this.ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
           this.ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
-      
+
           this.raycaster.setFromCamera(this.ndc, camera);
           const hits = this.raycaster.intersectObject(this.modelMeshRoot, true);
           if (!hits.length) return null;
-      
+
           const hitObj = hits[0].object;
-      
+
           const isDescendantOf = (obj, ancestor) => {
             let o = obj;
             while (o) {
@@ -173,40 +171,36 @@
             }
             return false;
           };
-      
+
           if (NODES.tapa   && isDescendantOf(hitObj, NODES.tapa))   return "TAPA";
           if (NODES.rueda1 && isDescendantOf(hitObj, NODES.rueda1)) return "W1";
           if (NODES.rueda2 && isDescendantOf(hitObj, NODES.rueda2)) return "W2";
           if (NODES.cuerpo && isDescendantOf(hitObj, NODES.cuerpo)) return "CUERPO";
-      
+
           return null;
         },
-      
+
         onTouchStart: function (event) {
-          // 2 dedos => GLOBAL (zoom + rotación del modelo completo)
           if (event.touches.length === 2) {
             this.mode = "GLOBAL";
             this.selected = null;
-      
+
             const t1 = event.touches[0];
             const t2 = event.touches[1];
-      
+
             this.prevPinchDist = this.touchDistance(t1, t2);
             this.prevTwistAngle = this.twistAngleRad(t1, t2);
             return;
           }
-      
-          // 1 dedo => PARTES (tapa / ruedas / cuerpo)
+
           if (event.touches.length === 1) {
             this.mode = "PART";
-      
             const t = event.touches[0];
             this.prevX = t.clientX;
             this.prevY = t.clientY;
-      
+
             this.selected = this.pickPart(t.clientX, t.clientY);
-      
-            // guarda bases (solo la primera vez) para limitar rangos
+
             if (window.NODES) {
               if (NODES.rueda1 && NODES.rueda1BaseX === undefined) NODES.rueda1BaseX = NODES.rueda1.position.x;
               if (NODES.rueda2 && NODES.rueda2BaseX === undefined) NODES.rueda2BaseX = NODES.rueda2.position.x;
@@ -217,22 +211,19 @@
             }
           }
         },
-      
+
         onTouchMove: function (event) {
           if (event.cancelable) event.preventDefault();
-      
-          // =========================
-          // MODO GLOBAL: 2 dedos
-          // =========================
+
+          // GLOBAL: 2 dedos (zoom + twist rota modelo completo)
           if (this.mode === "GLOBAL" && event.touches.length === 2) {
             const t1 = event.touches[0];
             const t2 = event.touches[1];
-      
-            // ZOOM (pinch)
+
             const dist = this.touchDistance(t1, t2);
             const deltaDist = dist - this.prevPinchDist;
             this.prevPinchDist = dist;
-      
+
             const factor = 1 + (deltaDist * this.data.zoomSpeed);
             const current = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
             this.el.setAttribute("scale", {
@@ -240,77 +231,70 @@
               y: this.clamp(current.y * factor, this.data.minScale, this.data.maxScale),
               z: this.clamp(current.z * factor, this.data.minScale, this.data.maxScale),
             });
-      
-            // ROTACIÓN GLOBAL (twist con 2 dedos)
+
             const ang = this.twistAngleRad(t1, t2);
             let dAng = ang - this.prevTwistAngle;
             this.prevTwistAngle = ang;
-      
-            // normaliza salto de -pi a pi
+
             if (dAng > Math.PI) dAng -= 2 * Math.PI;
             if (dAng < -Math.PI) dAng += 2 * Math.PI;
-      
+
             const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
             this.el.setAttribute("rotation", {
               x: rot.x,
               y: rot.y + THREE.MathUtils.radToDeg(dAng) * this.data.globalRotateSpeed,
               z: rot.z
             });
-      
+
             return;
           }
-      
-          // =========================
-          // MODO PARTES: 1 dedo
-          // =========================
+
+          // PARTES: 1 dedo
           if (this.mode === "PART" && event.touches.length === 1) {
             const t = event.touches[0];
             const x = t.clientX;
             const y = t.clientY;
-      
+
             const dx = x - this.prevX;
             const dy = y - this.prevY;
-      
+
             this.prevX = x;
             this.prevY = y;
-      
+
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
-      
-            // --- TAPA: swipe vertical abre/cierra ---
+
+            // ✅ TAPA: abre/cierra (pero ahora puede abrir hacia ADELANTE con tapaDir)
             if (this.selected === "TAPA" && window.NODES && NODES.tapa) {
-              const deltaDeg = (-dy) * this.data.tapaSwipeSpeed;
-              const maxDeg = NODES.tapaBaseRotX;
-              const minDeg = NODES.tapaBaseRotX - this.data.tapaMaxOpen;
-              
-              NODES.tapaAngleX = this.clamp(NODES.tapaAngleX + deltaDeg, minDeg, maxDeg);
-              NODES.tapa.rotation.x = THREE.MathUtils.degToRad(NODES.tapaAngleX);
+              const deltaOpen = (-dy) * this.data.tapaSwipeSpeed;  // swipe vertical
+              NODES.tapaOpen = this.clamp(NODES.tapaOpen + deltaOpen, 0, this.data.tapaMaxOpen);
+
+              const ax = NODES.tapaAxis;   // "x" o "z"
+              const dir = NODES.tapaDir;   // -1 abre hacia adelante
+
+              NODES.tapa.rotation[ax] = THREE.MathUtils.degToRad(NODES.tapaBaseRot + dir * NODES.tapaOpen);
               return;
             }
-      
-            // --- RUEDA 1: solo izquierda (X-) con swipe horizontal ---
+
+            // RUEDA 1: solo izquierda
             if (this.selected === "W1" && window.NODES && NODES.rueda1 && absDx >= absDy) {
               const onlyLeft = Math.min(0, dx) * this.data.wheelMoveSpeed;
-      
               const minX = NODES.rueda1BaseX - this.data.wheelRange;
               const maxX = NODES.rueda1BaseX;
-      
               NODES.rueda1.position.x = this.clamp(NODES.rueda1.position.x + onlyLeft, minX, maxX);
               return;
             }
-      
-            // --- RUEDA 2: solo derecha (X+) con swipe horizontal ---
+
+            // RUEDA 2: solo derecha
             if (this.selected === "W2" && window.NODES && NODES.rueda2 && absDx >= absDy) {
               const onlyRight = Math.max(0, dx) * this.data.wheelMoveSpeed;
-      
               const minX = NODES.rueda2BaseX;
               const maxX = NODES.rueda2BaseX + this.data.wheelRange;
-      
               NODES.rueda2.position.x = this.clamp(NODES.rueda2.position.x + onlyRight, minX, maxX);
               return;
             }
-      
-            // --- CUERPO: opcional (1 dedo horizontal rota el cuerpo) ---
+
+            // CUERPO: opcional
             if (this.selected === "CUERPO" && window.NODES && NODES.cuerpo && absDx >= absDy) {
               const deltaDeg = dx * this.data.cuerpoRotateSpeed;
               NODES.cuerpoRotY = (NODES.cuerpoRotY || 0) + deltaDeg;
@@ -319,26 +303,16 @@
             }
           }
         },
-      
+
         onTouchEnd: function (event) {
-          // si cambia cantidad de dedos, resetea modo
           if (event.touches.length === 0) {
             this.mode = null;
             this.selected = null;
-          } else if (event.touches.length === 1) {
-            // si pasó de 2 a 1, arrancará como PART en el próximo touchstart
-            this.mode = null;
-          } else if (event.touches.length === 2) {
+          } else {
             this.mode = null;
           }
         }
       });
-      </script>
+    </script>
   </body>
 </html>
-
-
-
-
-
-
