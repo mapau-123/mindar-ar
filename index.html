@@ -28,32 +28,6 @@
     </a-scene>
 
     <script>
-    let NODES = {
-      cuerpo: null,
-      rueda1: null,
-      rueda2: null,
-      tapa: null
-    };
-    
-    window.addEventListener("load", () => {
-      const modelEl = document.querySelector("#modelo");
-    
-      modelEl.addEventListener("model-loaded", () => {
-        const root = modelEl.object3D;
-    
-        NODES.cuerpo = root.getObjectByName("cuerpo_v11");
-        NODES.rueda1 = root.getObjectByName("rueda1_v11");
-        NODES.rueda2 = root.getObjectByName("rueda2_v11");
-        NODES.tapa   = root.getObjectByName("tapa_v11");
-    
-        console.log("=== NODOS LISTOS ===");
-        console.log("cuerpo:", NODES.cuerpo);
-        console.log("rueda1:", NODES.rueda1);
-        console.log("rueda2:", NODES.rueda2);
-        console.log("tapa:",   NODES.tapa);
-      });
-    });
-
     AFRAME.registerComponent("simple-rotate-zoom", {
       schema: {
         rotateSpeed: { type: "number", default: 0.005 },
@@ -154,10 +128,37 @@
         if (event.touches.length === 0) this.dragging = false;
       }
     });
+
+      let NODES = {
+      cuerpo: null,
+      rueda1: null,
+      rueda2: null,
+      tapa: null
+    };
+    
+    window.addEventListener("load", () => {
+      const modelEl = document.querySelector("#modelo");
+    
+      modelEl.addEventListener("model-loaded", () => {
+        const root = modelEl.object3D;
+    
+        NODES.cuerpo = root.getObjectByName("cuerpo_v11");
+        NODES.rueda1 = root.getObjectByName("rueda1_v11");
+        NODES.rueda2 = root.getObjectByName("rueda2_v11");
+        NODES.tapa   = root.getObjectByName("tapa_v11");
+    
+        console.log("=== NODOS LISTOS ===");
+        console.log("cuerpo:", NODES.cuerpo);
+        console.log("rueda1:", NODES.rueda1);
+        console.log("rueda2:", NODES.rueda2);
+        console.log("tapa:",   NODES.tapa);
+      });
+    });
       
     </script>
   </body>
 </html>
+
 
 
 
