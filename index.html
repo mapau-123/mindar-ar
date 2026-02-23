@@ -266,7 +266,7 @@
 
             // ✅ TAPA: abre/cierra (pero ahora puede abrir hacia ADELANTE con tapaDir)
             if (this.selected === "TAPA" && window.NODES && NODES.tapa) {
-              const deltaOpen = (-dy) * this.data.tapaSwipeSpeed;  // swipe vertical
+              const deltaOpen = (dy) * this.data.tapaSwipeSpeed;  // swipe vertical
               NODES.tapaOpen = this.clamp(NODES.tapaOpen + deltaOpen, 0, this.data.tapaMaxOpen);
 
               const ax = NODES.tapaAxis;   // "x" o "z"
@@ -316,4 +316,5 @@
     </script>
   </body>
 </html>
+
 
