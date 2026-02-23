@@ -90,19 +90,43 @@
             NODES.tapa   = root.getObjectByName("tapa_v11");
 
             if (NODES.tapa) {
-              // muestra ejes del nodo tapa
-              NODES.tapa.add(new THREE.AxesHelper(0.2));
-            
-              // muestra una bolita EXACTAMENTE en el origen local (pivot real)
-              const s = new THREE.Mesh(
-                new THREE.SphereGeometry(0.01, 12, 12),
-                new THREE.MeshBasicMaterial({ color: 0xff0000 })
-              );
-              NODES.tapa.add(s);
-              s.position.set(0, 0, 0);
-            
-              console.log("tapa pivot local:", NODES.tapa.position);
-            }
+            // Guardamos la orientación original (del modelo) como base
+            NODES.tapaBaseQuat = NODES.tapa.quaternion.clone();
+            NODES.tapaOpenDeg = 0;
+          
+            // =========================
+            // DEBUG: línea de bisagra (pivot real)
+            // =========================
+          
+            // 1) Ejes helper (más grande para AR)
+            const axes = new THREE.AxesHelper(0.6);
+            axes.frustumCulled = false;
+            NODES.tapa.add(axes);
+          
+            // 2) Línea centrada en el origen local (0,0,0) => pivot real del nodo
+            //    La alineamos con el eje local que elijas ("x","y","z")
+            const L = 0.7; // longitud de la línea (ajústala si quieres)
+            const p1 = new THREE.Vector3(0, 0, 0);
+            const p2 = new THREE.Vector3(0, 0, 0);
+          
+            if (NODES.tapaLocalAxis === "x") { p1.x = -L/2; p2.x =  L/2; }
+            if (NODES.tapaLocalAxis === "y") { p1.y = -L/2; p2.y =  L/2; }
+            if (NODES.tapaLocalAxis === "z") { p1.z = -L/2; p2.z =  L/2; }
+          
+            const geom = new THREE.BufferGeometry().setFromPoints([p1, p2]);
+            const mat = new THREE.LineBasicMaterial({ color: 0x00ff00 }); // verde
+            const hingeLine = new THREE.Line(geom, mat);
+            hingeLine.name = "HINGE_LINE_DEBUG";
+            hingeLine.frustumCulled = false;
+          
+            // Para que NO quede escondida por depth / caras:
+            hingeLine.renderOrder = 999;
+            hingeLine.material.depthTest = false;
+          
+            NODES.tapa.add(hingeLine);
+          
+            console.log("✅ DEBUG hinge line añadida al pivot local de tapa (0,0,0).");
+          }
 
             console.log("=== NODOS LISTOS ===");
             console.log("cuerpo:", NODES.cuerpo?.name);
@@ -322,6 +346,7 @@
     </script>
   </body>
 </html>
+
 
 
 
