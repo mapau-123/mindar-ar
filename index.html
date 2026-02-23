@@ -17,14 +17,9 @@
       <a-entity mindar-image-target="targetIndex: 0">
         <a-gltf-model
           id="modelo"
-          src="./carromodelo0.glb"
+          src="./modelocarro0.glb"
           scale="2.5 2.5 2.5"
-          simple-rotate-zoom="
-            tapaMaxOpen: 180;
-            wheelRange: 0.20;
-            wheelMoveSpeed: 0.0025;
-            globalRotateSpeed: 1.2;
-          "
+          simple-rotate-zoom="tapaMaxOpen: 180; wheelRange: 0.20; wheelMoveSpeed: 0.0025; globalRotateSpeed: 1.2;"
         ></a-gltf-model>
       </a-entity>
     </a-scene>
@@ -38,12 +33,12 @@
         rueda1: null,
         rueda2: null,
         tapa: null,
-
-        // tapa (nuevo sistema)
-        tapaAxis: "x",    // eje de bisagra (normalmente "x"; si no, prueba "z")
-        tapaDir: 1,      // ✅ CAMBIA EL SENTIDO: -1 abre hacia el otro lado (adelante)
-        tapaBaseRot: 0,   // grados (rotación cuando está cerrada)
-        tapaOpen: 0       // grados (0..tapaMaxOpen)
+      
+        // nuevo: tapa con quaternion (respeta eje LOCAL del modelo)
+        tapaBaseQuat: null,
+        tapaOpenDeg: 0,
+        tapaDir: 1,            // cambia a -1 si abre al revés
+        tapaLocalAxis: "x"     // eje LOCAL del nodo (x/y/z). Ideal: dejarlo SIEMPRE en "x"
       };
 
       window.addEventListener("load", () => {
@@ -59,11 +54,11 @@
 
           // Guardar rotación base de tapa
           if (NODES.tapa) {
-            const ax = NODES.tapaAxis; // "x" o "z"
-            NODES.tapaBaseRot = THREE.MathUtils.radToDeg(NODES.tapa.rotation[ax]);
-            NODES.tapaOpen = 0;
+            // Guardamos la orientación original (del modelo) como base
+            NODES.tapaBaseQuat = NODES.tapa.quaternion.clone();
+            NODES.tapaOpenDeg = 0;
           }
-
+          
           console.log("=== NODOS LISTOS ===");
           console.log("cuerpo:", NODES.cuerpo?.name, NODES.cuerpo?.type);
           console.log("rueda1:", NODES.rueda1?.name, NODES.rueda1?.type);
@@ -264,15 +259,30 @@
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
 
-            // ✅ TAPA: abre/cierra (pero ahora puede abrir hacia ADELANTE con tapaDir)
-            if (this.selected === "TAPA" && window.NODES && NODES.tapa) {
-              const deltaOpen = (dy) * this.data.tapaSwipeSpeed;  // swipe vertical
-              NODES.tapaOpen = this.clamp(NODES.tapaOpen + deltaOpen, 0, this.data.tapaMaxOpen);
-
-              const ax = NODES.tapaAxis;   // "x" o "z"
-              const dir = NODES.tapaDir;   // -1 abre hacia adelante
-
-              NODES.tapa.rotation[ax] = THREE.MathUtils.degToRad(NODES.tapaBaseRot + dir * NODES.tapaOpen);
+            // ✅ TAPA: abre/cierra
+            if (this.selected === "TAPA" && window.NODES && NODES.tapa && NODES.tapaBaseQuat) {
+              const deltaOpen = (-dy) * this.data.tapaSwipeSpeed;
+              NODES.tapaOpenDeg = this.clamp(
+                NODES.tapaOpenDeg + deltaOpen,
+                0,
+                this.data.tapaMaxOpen
+              );
+            
+              // Eje LOCAL (idealmente en Blender alineas la bisagra con X)
+              let axis = new THREE.Vector3(1, 0, 0); // X
+              if (NODES.tapaLocalAxis === "y") axis.set(0, 1, 0);
+              if (NODES.tapaLocalAxis === "z") axis.set(0, 0, 1);
+            
+              const angleRad = THREE.MathUtils.degToRad(
+                NODES.tapaDir * NODES.tapaOpenDeg
+              );
+            
+              const q = new THREE.Quaternion().setFromAxisAngle(axis, angleRad);
+            
+              NODES.tapa.quaternion
+                .copy(NODES.tapaBaseQuat)
+                .multiply(q);
+            
               return;
             }
 
@@ -316,6 +326,7 @@
     </script>
   </body>
 </html>
+
 
 
 
