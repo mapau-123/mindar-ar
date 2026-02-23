@@ -90,8 +90,18 @@
             NODES.tapa   = root.getObjectByName("tapa_v11");
 
             if (NODES.tapa) {
-              NODES.tapaBaseQuat = NODES.tapa.quaternion.clone();
-              NODES.tapaOpenDeg = 0;
+              // muestra ejes del nodo tapa
+              NODES.tapa.add(new THREE.AxesHelper(0.2));
+            
+              // muestra una bolita EXACTAMENTE en el origen local (pivot real)
+              const s = new THREE.Mesh(
+                new THREE.SphereGeometry(0.01, 12, 12),
+                new THREE.MeshBasicMaterial({ color: 0xff0000 })
+              );
+              NODES.tapa.add(s);
+              s.position.set(0, 0, 0);
+            
+              console.log("tapa pivot local:", NODES.tapa.position);
             }
 
             console.log("=== NODOS LISTOS ===");
@@ -312,5 +322,6 @@
     </script>
   </body>
 </html>
+
 
 
