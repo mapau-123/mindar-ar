@@ -26,47 +26,20 @@
 
     <script>
       // =========================
-      // 1) Captura de nodos GLB
+      // Estado global de nodos
       // =========================
       window.NODES = {
         cuerpo: null,
         rueda1: null,
         rueda2: null,
         tapa: null,
-      
-        // nuevo: tapa con quaternion (respeta eje LOCAL del modelo)
+
+        // tapa: quaternion + eje local
         tapaBaseQuat: null,
         tapaOpenDeg: 0,
-        tapaDir: 1,            // cambia a -1 si abre al revés
-        tapaLocalAxis: "x"     // eje LOCAL del nodo (x/y/z). Ideal: dejarlo SIEMPRE en "x"
+        tapaDir: 1,          // pon -1 si abre al revés
+        tapaLocalAxis: "x",  // "x" | "y" | "z"
       };
-
-      window.addEventListener("load", () => {
-        const modelEl = document.querySelector("#modelo");
-
-        modelEl.addEventListener("model-loaded", () => {
-          const root = modelEl.object3D;
-
-          NODES.cuerpo = root.getObjectByName("cuerpo_v11");
-          NODES.rueda1 = root.getObjectByName("rueda1_v11");
-          NODES.rueda2 = root.getObjectByName("rueda2_v11");
-          NODES.tapa   = root.getObjectByName("tapa_v11");
-
-          // Guardar rotación base de tapa
-          if (NODES.tapa) {
-            // Guardamos la orientación original (del modelo) como base
-            NODES.tapaBaseQuat = NODES.tapa.quaternion.clone();
-            NODES.tapaOpenDeg = 0;
-          }
-          
-          console.log("=== NODOS LISTOS ===");
-          console.log("cuerpo:", NODES.cuerpo?.name, NODES.cuerpo?.type);
-          console.log("rueda1:", NODES.rueda1?.name, NODES.rueda1?.type);
-          console.log("rueda2:", NODES.rueda2?.name, NODES.rueda2?.type);
-          console.log("tapa:",   NODES.tapa?.name,   NODES.tapa?.type);
-          console.log("tapaAxis:", NODES.tapaAxis, "tapaDir:", NODES.tapaDir);
-        });
-      });
 
       AFRAME.registerComponent("simple-rotate-zoom", {
         schema: {
@@ -90,13 +63,10 @@
 
         init: function () {
           this.mode = null;
-
           this.prevX = 0;
           this.prevY = 0;
-
           this.prevPinchDist = 0;
           this.prevTwistAngle = 0;
-
           this.selected = null;
 
           this.raycaster = new THREE.Raycaster();
@@ -107,6 +77,37 @@
           this.onTouchMove  = this.onTouchMove.bind(this);
           this.onTouchEnd   = this.onTouchEnd.bind(this);
 
+          // ✅ Captura del GLB dentro del lifecycle correcto
+          this.el.addEventListener("model-loaded", () => {
+            this.modelMeshRoot = this.el.getObject3D("mesh");
+
+            const root = this.el.object3D;
+
+            // nombres de tus nodos (ajústalos si cambiaron en el nuevo GLB)
+            NODES.cuerpo = root.getObjectByName("cuerpo_v11");
+            NODES.rueda1 = root.getObjectByName("rueda1_v11");
+            NODES.rueda2 = root.getObjectByName("rueda2_v11");
+            NODES.tapa   = root.getObjectByName("tapa_v11");
+
+            if (NODES.tapa) {
+              NODES.tapaBaseQuat = NODES.tapa.quaternion.clone();
+              NODES.tapaOpenDeg = 0;
+            }
+
+            console.log("=== NODOS LISTOS ===");
+            console.log("cuerpo:", NODES.cuerpo?.name);
+            console.log("rueda1:", NODES.rueda1?.name);
+            console.log("rueda2:", NODES.rueda2?.name);
+            console.log("tapa:",   NODES.tapa?.name);
+            console.log("tapaLocalAxis:", NODES.tapaLocalAxis, "tapaDir:", NODES.tapaDir);
+          });
+
+          // ✅ Si el GLB falla, lo verás
+          this.el.addEventListener("model-error", (e) => {
+            console.error("❌ Error cargando GLB:", e?.detail || e);
+          });
+
+          // Eventos touch
           const waitForCanvas = () => {
             if (this.el.sceneEl && this.el.sceneEl.canvas) {
               const canvas = this.el.sceneEl.canvas;
@@ -118,10 +119,6 @@
             }
           };
           waitForCanvas();
-
-          this.el.addEventListener("model-loaded", () => {
-            this.modelMeshRoot = this.el.getObject3D("mesh");
-          });
         },
 
         clamp: function (v, min, max) {
@@ -259,30 +256,19 @@
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
 
-            // ✅ TAPA: abre/cierra
+            // ✅ TAPA: quaternion en eje LOCAL (x/y/z)
             if (this.selected === "TAPA" && window.NODES && NODES.tapa && NODES.tapaBaseQuat) {
               const deltaOpen = (-dy) * this.data.tapaSwipeSpeed;
-              NODES.tapaOpenDeg = this.clamp(
-                NODES.tapaOpenDeg + deltaOpen,
-                0,
-                this.data.tapaMaxOpen
-              );
-            
-              // Eje LOCAL (idealmente en Blender alineas la bisagra con X)
-              let axis = new THREE.Vector3(1, 0, 0); // X
+              NODES.tapaOpenDeg = this.clamp(NODES.tapaOpenDeg + deltaOpen, 0, this.data.tapaMaxOpen);
+
+              let axis = new THREE.Vector3(1, 0, 0);
               if (NODES.tapaLocalAxis === "y") axis.set(0, 1, 0);
               if (NODES.tapaLocalAxis === "z") axis.set(0, 0, 1);
-            
-              const angleRad = THREE.MathUtils.degToRad(
-                NODES.tapaDir * NODES.tapaOpenDeg
-              );
-            
+
+              const angleRad = THREE.MathUtils.degToRad(NODES.tapaDir * NODES.tapaOpenDeg);
               const q = new THREE.Quaternion().setFromAxisAngle(axis, angleRad);
-            
-              NODES.tapa.quaternion
-                .copy(NODES.tapaBaseQuat)
-                .multiply(q);
-            
+
+              NODES.tapa.quaternion.copy(NODES.tapaBaseQuat).multiply(q);
               return;
             }
 
@@ -326,7 +312,4 @@
     </script>
   </body>
 </html>
-
-
-
 
