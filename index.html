@@ -16,68 +16,66 @@
 
       <a-entity mindar-image-target="targetIndex: 0">
         <a-gltf-model
-          id="carro"
+          id="modelo"
           src="./modcarro.glb"
           scale="5 5 5"
-          car-controls="
-            minScale: 0.8;
-            maxScale: 15;
-            zoomSpeed: 0.0025;
-
-            rotateSpeed: 0.25;
-
-            lidNodeName: tapa_v31;
-            lidAxis: x;
-            lidDir: 1;
-            lidMaxOpen: 110;
-            lidSwipeSpeed: 0.25;
-          "
+          simple-test
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
     <script>
-      AFRAME.registerComponent("car-controls", {
+      window.NODES = {
+        tapa: null,
+        tapaBasePos: null
+      };
+
+      window.addEventListener("load", () => {
+        const modelEl = document.querySelector("#modelo");
+
+        modelEl.addEventListener("model-loaded", () => {
+          const root = modelEl.object3D;
+
+          // ✅ tu tapa nueva
+          NODES.tapa = root.getObjectByName("tapa_v31");
+
+          console.log("tapa:", NODES.tapa?.name, NODES.tapa?.type);
+
+          if (NODES.tapa) {
+            // guardamos posición base (local)
+            NODES.tapaBasePos = NODES.tapa.position.clone();
+
+            // debug: ejes para ver dónde está la tapa
+            NODES.tapa.add(new THREE.AxesHelper(0.2));
+          }
+        });
+      });
+
+      AFRAME.registerComponent("simple-test", {
         schema: {
-          // 2 dedos: zoom
+          // zoom
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
-          maxScale:  { type: "number", default: 8.0 },
+          maxScale:  { type: "number", default: 15.0 },
 
-          // 1 dedo horizontal: rotación global
-          rotateSpeed: { type: "number", default: 0.25 }, // grados por pixel
+          // rotación global
+          rotateSpeed: { type: "number", default: 0.25 },
 
-          // tapa
-          lidNodeName:   { type: "string", default: "tapa_v31" },
-          lidAxis:       { type: "string", default: "x" }, // "x" | "y" | "z"
-          lidDir:        { type: "number", default: 1 },   // 1 o -1
-          lidMaxOpen:    { type: "number", default: 110 }, // grados
-          lidSwipeSpeed: { type: "number", default: 0.25 } // sensibilidad
+          // movimiento tapa (prueba)
+          lidMoveSpeed: { type: "number", default: 0.002 }, // unidades por pixel
+          lidMoveRange: { type: "number", default: 0.25 }   // max desplazamiento (en unidades del modelo)
         },
 
         init: function () {
-          this.mode = null;      // "PINCH" | "DRAG"
-          this.dragMode = null;  // "GLOBAL_ROTATE" | "LID"
-
+          this.mode = null; // "PINCH" | "DRAG"
           this.prevDist = 0;
           this.prevX = 0;
           this.prevY = 0;
-
-          // picking
-          this.raycaster = new THREE.Raycaster();
-          this.ndc = new THREE.Vector2();
-          this.modelMeshRoot = null;
-
-          // tapa
-          this.lid = null;
-          this.lidBaseQuat = null;
-          this.lidOpenDeg = 0;
 
           this.onTouchStart = this.onTouchStart.bind(this);
           this.onTouchMove  = this.onTouchMove.bind(this);
           this.onTouchEnd   = this.onTouchEnd.bind(this);
 
-          // esperar canvas
           const waitForCanvas = () => {
             if (this.el.sceneEl && this.el.sceneEl.canvas) {
               const canvas = this.el.sceneEl.canvas;
@@ -89,25 +87,6 @@
             }
           };
           waitForCanvas();
-
-          this.el.addEventListener("model-loaded", () => {
-            this.modelMeshRoot = this.el.getObject3D("mesh");
-
-            const root = this.el.object3D;
-            this.lid = root.getObjectByName(this.data.lidNodeName);
-
-            if (this.lid) {
-              this.lidBaseQuat = this.lid.quaternion.clone();
-              this.lidOpenDeg = 0;
-              console.log("✅ Lid found:", this.lid.name, this.lid.type);
-            } else {
-              console.warn("⚠️ Lid NOT found. lidNodeName:", this.data.lidNodeName);
-            }
-          });
-
-          this.el.addEventListener("model-error", (e) => {
-            console.error("❌ Error cargando GLB:", e?.detail || e);
-          });
         },
 
         clamp: function (v, min, max) {
@@ -120,70 +99,16 @@
           return Math.hypot(dx, dy);
         },
 
-        // ¿el toque cayó sobre la tapa?
-        hitLid: function (clientX, clientY) {
-          if (!this.modelMeshRoot || !this.lid) return false;
-
-          const sceneEl = this.el.sceneEl;
-          const camera = sceneEl.camera;
-          const renderer = sceneEl.renderer;
-          if (!camera || !renderer) return false;
-
-          const rect = renderer.domElement.getBoundingClientRect();
-          this.ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-          this.ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
-
-          this.raycaster.setFromCamera(this.ndc, camera);
-          const hits = this.raycaster.intersectObject(this.modelMeshRoot, true);
-          if (!hits.length) return false;
-
-          const hitObj = hits[0].object;
-
-          const isDescendantOf = (obj, ancestor) => {
-            let o = obj;
-            while (o) {
-              if (o === ancestor) return true;
-              o = o.parent;
-            }
-            return false;
-          };
-
-          return isDescendantOf(hitObj, this.lid);
-        },
-
-        rotateLidByDy: function (dy) {
-          if (!this.lid || !this.lidBaseQuat) return;
-
-          // dy positivo = dedo baja (cierra), dy negativo = dedo sube (abre)
-          const deltaDeg = (-dy) * this.data.lidSwipeSpeed;
-          this.lidOpenDeg = this.clamp(this.lidOpenDeg + deltaDeg, 0, this.data.lidMaxOpen);
-
-          let axis = new THREE.Vector3(1, 0, 0);
-          if (this.data.lidAxis === "y") axis.set(0, 1, 0);
-          if (this.data.lidAxis === "z") axis.set(0, 0, 1);
-
-          const angleRad = THREE.MathUtils.degToRad(this.data.lidDir * this.lidOpenDeg);
-          const q = new THREE.Quaternion().setFromAxisAngle(axis, angleRad);
-
-          this.lid.quaternion.copy(this.lidBaseQuat).multiply(q);
-        },
-
         onTouchStart: function (e) {
           if (e.touches.length === 2) {
             this.mode = "PINCH";
-            this.dragMode = null;
             this.prevDist = this.dist(e.touches[0], e.touches[1]);
             return;
           }
-
           if (e.touches.length === 1) {
             this.mode = "DRAG";
-            const t = e.touches[0];
-            this.prevX = t.clientX;
-            this.prevY = t.clientY;
-
-            // Si tocó la tapa -> modo tapa, si no -> rotación global
-            this.dragMode = this.hitLid(t.clientX, t.clientY) ? "LID" : "GLOBAL_ROTATE";
+            this.prevX = e.touches[0].clientX;
+            this.prevY = e.touches[0].clientY;
           }
         },
 
@@ -199,19 +124,18 @@
             const factor = 1 + (delta * this.data.zoomSpeed);
             const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
 
-            const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
-            const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
-            const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
-
-            this.el.setAttribute("scale", { x: nx, y: ny, z: nz });
+            this.el.setAttribute("scale", {
+              x: this.clamp(s.x * factor, this.data.minScale, this.data.maxScale),
+              y: this.clamp(s.y * factor, this.data.minScale, this.data.maxScale),
+              z: this.clamp(s.z * factor, this.data.minScale, this.data.maxScale),
+            });
             return;
           }
 
-          // 1 dedo
+          // 1 dedo: horizontal rota todo / vertical mueve tapa (prueba)
           if (this.mode === "DRAG" && e.touches.length === 1) {
-            const t = e.touches[0];
-            const x = t.clientX;
-            const y = t.clientY;
+            const x = e.touches[0].clientX;
+            const y = e.touches[0].clientY;
 
             const dx = x - this.prevX;
             const dy = y - this.prevY;
@@ -222,13 +146,19 @@
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
 
-            // Si tocaste tapa: vertical abre/cierra
-            if (this.dragMode === "LID" && absDy >= absDx) {
-              this.rotateLidByDy(dy);
+            // ✅ Vertical: mover tapa (PRUEBA)
+            if (absDy > absDx && window.NODES && NODES.tapa && NODES.tapaBasePos) {
+              // dy negativo = dedo sube => tapa sube
+              const delta = (-dy) * this.data.lidMoveSpeed;
+
+              const minY = NODES.tapaBasePos.y;
+              const maxY = NODES.tapaBasePos.y + this.data.lidMoveRange;
+
+              NODES.tapa.position.y = this.clamp(NODES.tapa.position.y + delta, minY, maxY);
               return;
             }
 
-            // Si no (o arrastre más horizontal), rota global
+            // Horizontal: rotar modelo completo
             const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
             this.el.setAttribute("rotation", {
               x: rot.x,
@@ -239,16 +169,8 @@
         },
 
         onTouchEnd: function (e) {
-          if (e.touches.length === 0) {
-            this.mode = null;
-            this.dragMode = null;
-            this.prevDist = 0;
-          } else if (e.touches.length === 1) {
-            // evitar saltos al pasar de pinch a drag
-            this.mode = null;
-            this.dragMode = null;
-            this.prevDist = 0;
-          }
+          if (e.touches.length === 0) this.mode = null;
+          if (e.touches.length === 1) this.mode = null; // evita saltos
         }
       });
     </script>
