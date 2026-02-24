@@ -154,7 +154,7 @@
               const minY = NODES.tapaBasePos.y;
               const maxY = NODES.tapaBasePos.y + this.data.lidMoveRange;
 
-              NODES.tapa.position.y = this.clamp(NODES.tapa.position.y + delta, minY, maxY);
+              NODES.tapa.position.z = this.clamp(NODES.tapa.position.z + delta, minY, maxY);
               return;
             }
 
@@ -176,3 +176,4 @@
     </script>
   </body>
 </html>
+
