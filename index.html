@@ -18,22 +18,30 @@
         <a-gltf-model
           id="carro"
           src="./modcarro.glb"
-          scale="4 4 4"
-          pinch-zoom="minScale: 0.8; maxScale: 15; zoomSpeed: 0.0025;"
+          scale="2.5 2.5 2.5"
+          pinch-drag="minScale: 0.8; maxScale: 8; zoomSpeed: 0.0025; rotateSpeed: 0.25;"
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
     <script>
-      AFRAME.registerComponent("pinch-zoom", {
+      AFRAME.registerComponent("pinch-drag", {
         schema: {
+          // Zoom (2 dedos)
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
-          maxScale:  { type: "number", default: 8.0 }
+          maxScale:  { type: "number", default: 8.0 },
+
+          // Rotación (1 dedo)
+          rotateSpeed: { type: "number", default: 0.25 } // grados por pixel (ajústalo)
         },
 
         init: function () {
+          this.mode = null; // "PINCH" o "DRAG"
           this.prevDist = 0;
+
+          this.prevX = 0;
+          this.baseRotY = 0; // grados
 
           this.onTouchStart = this.onTouchStart.bind(this);
           this.onTouchMove  = this.onTouchMove.bind(this);
@@ -50,6 +58,10 @@
             }
           };
           waitForCanvas();
+
+          // guarda rotación inicial
+          const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+          this.baseRotY = rot.y;
         },
 
         clamp: function (v, min, max) {
@@ -64,33 +76,66 @@
 
         onTouchStart: function (e) {
           if (e.touches.length === 2) {
+            this.mode = "PINCH";
             this.prevDist = this.dist(e.touches[0], e.touches[1]);
+            return;
+          }
+
+          if (e.touches.length === 1) {
+            this.mode = "DRAG";
+            this.prevX = e.touches[0].clientX;
+
+            const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+            this.baseRotY = rot.y;
           }
         },
 
         onTouchMove: function (e) {
-          if (e.touches.length !== 2) return;
           if (e.cancelable) e.preventDefault();
 
-          const d = this.dist(e.touches[0], e.touches[1]);
-          const delta = d - this.prevDist;
-          this.prevDist = d;
+          // 2 dedos: zoom
+          if (this.mode === "PINCH" && e.touches.length === 2) {
+            const d = this.dist(e.touches[0], e.touches[1]);
+            const delta = d - this.prevDist;
+            this.prevDist = d;
 
-          const factor = 1 + (delta * this.data.zoomSpeed);
-          const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
+            const factor = 1 + (delta * this.data.zoomSpeed);
+            const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
 
-          const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
-          const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
-          const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
+            const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
+            const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
+            const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
 
-          this.el.setAttribute("scale", { x: nx, y: ny, z: nz });
+            this.el.setAttribute("scale", { x: nx, y: ny, z: nz });
+            return;
+          }
+
+          // 1 dedo: rotación izquierda/derecha
+          if (this.mode === "DRAG" && e.touches.length === 1) {
+            const x = e.touches[0].clientX;
+            const dx = x - this.prevX;
+            this.prevX = x;
+
+            const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+            this.el.setAttribute("rotation", {
+              x: rot.x,
+              y: rot.y + dx * this.data.rotateSpeed,
+              z: rot.z
+            });
+          }
         },
 
-        onTouchEnd: function () {
-          if (this.prevDist) this.prevDist = 0;
+        onTouchEnd: function (e) {
+          if (e.touches.length === 0) {
+            this.mode = null;
+            this.prevDist = 0;
+          } else if (e.touches.length === 1) {
+            // si sueltas un dedo de un pinch y queda 1, salimos para evitar saltos
+            this.mode = null;
+            this.prevDist = 0;
+          }
         }
       });
     </script>
   </body>
 </html>
-
