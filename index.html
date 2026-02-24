@@ -150,11 +150,34 @@
             if (absDy > absDx && window.NODES && NODES.tapa && NODES.tapaBasePos) {
               // dy negativo = dedo sube => tapa sube
               const delta = (-dy) * this.data.lidMoveSpeed;
-
-              const minY = NODES.tapaBasePos.y;
-              const maxY = NODES.tapaBasePos.y + this.data.lidMoveRange;
-
-              NODES.tapa.position.y = this.clamp(NODES.tapa.position.y + delta, minY, maxY);
+              
+              // vector arriba en MUNDO
+              const worldUp = new THREE.Vector3(0, 1, 0);
+              
+              // lo convertimos a espacio del PADRE de la tapa
+              const parent = NODES.tapa.parent;
+              const upInParent = worldUp.clone();
+              
+              if (parent) {
+                parent.worldToLocal(upInParent.add(parent.getWorldPosition(new THREE.Vector3())));
+                // ahora upInParent es un punto, no un vector. Convertimos a vector restando el origen del padre.
+                const originInParent = parent.worldToLocal(parent.getWorldPosition(new THREE.Vector3()));
+                upInParent.sub(originInParent).normalize();
+              } else {
+                // si no hay parent, está en mundo
+                upInParent.copy(worldUp);
+              }
+              
+              // aplicamos movimiento
+              NODES.tapa.position.addScaledVector(upInParent, delta);
+              
+              // clamp usando el desplazamiento proyectado sobre upInParent
+              const base = NODES.tapaBasePos;
+              const curOffset = NODES.tapa.position.clone().sub(base).dot(upInParent);
+              const clamped = this.clamp(curOffset, 0, this.data.lidMoveRange);
+              
+              // reubicar manteniendo clamp
+              NODES.tapa.position.copy(base).addScaledVector(upInParent, clamped);
               return;
             }
 
@@ -176,6 +199,7 @@
     </script>
   </body>
 </html>
+
 
 
 
