@@ -18,16 +18,21 @@
         <a-gltf-model
           id="modelo"
           src="./modcarro.glb"
+          position="0 0 0"
+          rotation="0 0 0"
           scale="5 5 5"
-          simple-test
+          car-basic
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
     <script>
+      // =========================
+      // Nodos globales
+      // =========================
       window.NODES = {
         tapa: null,
-        tapaBasePos: null
+        tapaBaseWorld: null // posición base en mundo (para clamp)
       };
 
       window.addEventListener("load", () => {
@@ -36,34 +41,50 @@
         modelEl.addEventListener("model-loaded", () => {
           const root = modelEl.object3D;
 
-          // ✅ tu tapa nueva
+          // ✅ TAPA (nombre real de tu GLB actual)
           NODES.tapa = root.getObjectByName("tapa_v31");
 
+          console.log("=== NODOS LISTOS ===");
           console.log("tapa:", NODES.tapa?.name, NODES.tapa?.type);
 
-          if (NODES.tapa) {
-            // guardamos posición base (local)
-            NODES.tapaBasePos = NODES.tapa.position.clone();
+          // Debug: ejes del modelo completo (para ver qué eje es arriba)
+          root.add(new THREE.AxesHelper(0.5));
 
-            // debug: ejes para ver dónde está la tapa
-            NODES.tapa.add(new THREE.AxesHelper(0.2));
+          if (NODES.tapa) {
+            // Debug: ejes de la tapa
+            NODES.tapa.add(new THREE.AxesHelper(0.25));
+
+            // Guardar posición base en mundo
+            const w = new THREE.Vector3();
+            NODES.tapa.getWorldPosition(w);
+            NODES.tapaBaseWorld = w.clone();
+          } else {
+            console.warn("⚠️ No se encontró la tapa. Revisa el nombre: tapa_v31");
           }
+        });
+
+        modelEl.addEventListener("model-error", (e) => {
+          console.error("❌ Error cargando GLB:", e?.detail || e);
         });
       });
 
-      AFRAME.registerComponent("simple-test", {
+      // =========================
+      // Componente: Zoom + Rotar modelo + Mover tapa hacia arriba (mundo)
+      // =========================
+      AFRAME.registerComponent("car-basic", {
         schema: {
-          // zoom
+          // Zoom
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
           maxScale:  { type: "number", default: 15.0 },
 
-          // rotación global
-          rotateSpeed: { type: "number", default: 0.25 },
+          // Rotación global (1 dedo horizontal)
+          rotateSpeed: { type: "number", default: 0.25 }, // grados/pixel
 
-          // movimiento tapa (prueba)
-          lidMoveSpeed: { type: "number", default: 0.002 }, // unidades por pixel
-          lidMoveRange: { type: "number", default: 0.25 }   // max desplazamiento (en unidades del modelo)
+          // Movimiento tapa (1 dedo vertical)
+          lidMoveSpeed: { type: "number", default: 0.05 }, // 👈 súbelo/bájalo si hace falta
+          lidMoveRange: { type: "number", default: 15 },  // 👈 rango en unidades de mundo aprox
+          worldUpAxis:  { type: "string", default: "y" }   // "y" (normal) o "z" si en tu escena Z es arriba
         },
 
         init: function () {
@@ -132,7 +153,7 @@
             return;
           }
 
-          // 1 dedo: horizontal rota todo / vertical mueve tapa (prueba)
+          // 1 dedo: vertical mueve tapa / horizontal rota modelo
           if (this.mode === "DRAG" && e.touches.length === 1) {
             const x = e.touches[0].clientX;
             const y = e.touches[0].clientY;
@@ -146,48 +167,48 @@
             const absDx = Math.abs(dx);
             const absDy = Math.abs(dy);
 
-            // ✅ Vertical: mover tapa (PRUEBA)
-            if (absDy > absDx && window.NODES && NODES.tapa && NODES.tapaBasePos) {
-              // dy negativo = dedo sube => tapa sube
+            // --- Vertical: mover tapa hacia arriba del MUNDO ---
+            if (absDy > absDx && window.NODES && NODES.tapa && NODES.tapaBaseWorld) {
               const delta = (-dy) * this.data.lidMoveSpeed;
-              
-              // vector arriba en MUNDO
-              const worldUp = new THREE.Vector3(0, 1, 0);
-              
-              // lo convertimos a espacio del PADRE de la tapa
-              const parent = NODES.tapa.parent;
-              const upInParent = worldUp.clone();
-              
-              if (parent) {
-                parent.worldToLocal(upInParent.add(parent.getWorldPosition(new THREE.Vector3())));
-                // ahora upInParent es un punto, no un vector. Convertimos a vector restando el origen del padre.
-                const originInParent = parent.worldToLocal(parent.getWorldPosition(new THREE.Vector3()));
-                upInParent.sub(originInParent).normalize();
+
+              // 1) posición actual en mundo
+              const wpos = new THREE.Vector3();
+              NODES.tapa.getWorldPosition(wpos);
+
+              // 2) mover en eje "arriba" del mundo (y por defecto, o z si tu escena usa z-up)
+              if (this.data.worldUpAxis === "z") wpos.z += delta;
+              else wpos.y += delta;
+
+              // 3) clamp en mundo respecto a la posición base
+              const base = NODES.tapaBaseWorld;
+              const offset = (this.data.worldUpAxis === "z") ? (wpos.z - base.z) : (wpos.y - base.y);
+              const clamped = this.clamp(offset, 0, this.data.lidMoveRange);
+
+              if (this.data.worldUpAxis === "z") {
+                wpos.z = base.z + clamped;
               } else {
-                // si no hay parent, está en mundo
-                upInParent.copy(worldUp);
+                wpos.y = base.y + clamped;
               }
-              
-              // aplicamos movimiento
-              NODES.tapa.position.addScaledVector(upInParent, delta);
-              
-              // clamp usando el desplazamiento proyectado sobre upInParent
-              const base = NODES.tapaBasePos;
-              const curOffset = NODES.tapa.position.clone().sub(base).dot(upInParent);
-              const clamped = this.clamp(curOffset, 0, this.data.lidMoveRange);
-              
-              // reubicar manteniendo clamp
-              NODES.tapa.position.copy(base).addScaledVector(upInParent, clamped);
+
+              // 4) convertir mundo -> local del padre y aplicar
+              const parent = NODES.tapa.parent;
+              if (parent) {
+                parent.worldToLocal(wpos);
+              }
+              NODES.tapa.position.copy(wpos);
+
               return;
             }
 
-            // Horizontal: rotar modelo completo
-            const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
-            this.el.setAttribute("rotation", {
-              x: rot.x,
-              y: rot.y + dx * this.data.rotateSpeed,
-              z: rot.z
-            });
+            // --- Horizontal: rotar modelo completo ---
+            if (absDx >= absDy) {
+              const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+              this.el.setAttribute("rotation", {
+                x: rot.x,
+                y: rot.y + dx * this.data.rotateSpeed,
+                z: rot.z
+              });
+            }
           }
         },
 
@@ -199,6 +220,7 @@
     </script>
   </body>
 </html>
+
 
 
 
