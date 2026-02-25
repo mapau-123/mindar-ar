@@ -17,100 +17,57 @@
       <a-entity mindar-image-target="targetIndex: 0">
         <a-gltf-model
           id="modelo"
-          src="./carromodelo0.glb"
+          src="./modcarro.glb"
           position="0 0 0"
           rotation="0 0 0"
-          scale="2.5 2.5 2.5"
-          car-basic
+          scale="5 5 5"
+          pinch-zoom
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
     <script>
-      // =========================
-      // Nodos globales
-      // =========================
-      window.NODES = {
-        tapa: null,
-        tapaBaseWorld: null // posición base en mundo (para clamp)
-      };
-
-      window.addEventListener("load", () => {
-        const modelEl = document.querySelector("#modelo");
-
-        modelEl.addEventListener("model-loaded", () => {
-          const root = modelEl.object3D;
-
-          // ✅ TAPA
-          NODES.tapa = root.getObjectByName("tapa_v31");
-
-          console.log("=== NODOS LISTOS ===");
-          console.log("tapa:", NODES.tapa?.name, NODES.tapa?.type);
-
-          // Debug: ejes del modelo completo
-          root.add(new THREE.AxesHelper(0.5));
-
-          if (NODES.tapa) {
-            // Debug: ejes de la tapa
-            NODES.tapa.add(new THREE.AxesHelper(0.25));
-
-            // Guardar posición base en mundo
-            const w = new THREE.Vector3();
-            NODES.tapa.getWorldPosition(w);
-            NODES.tapaBaseWorld = w.clone();
-          } else {
-            console.warn("⚠️ No se encontró la tapa. Revisa el nombre: tapa_v31");
-          }
-        });
-
-        modelEl.addEventListener("model-error", (e) => {
-          console.error("❌ Error cargando GLB:", e?.detail || e);
-        });
-      });
-
-      // =========================
-      // Componente: Zoom + Rotar modelo + Mover tapa SOLO en Y (mundo, invertido)
-      // =========================
-      AFRAME.registerComponent("car-basic", {
+      AFRAME.registerComponent("pinch-zoom", {
         schema: {
-          // Zoom
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
-          maxScale:  { type: "number", default: 8.0 },
-
-          // Rotación global (1 dedo horizontal)
-          rotateSpeed: { type: "number", default: 0.25 },
-
-          // Movimiento tapa (drag absoluto)
-          lidMoveRange: { type: "number", default: 0.8 },   // rango en unidades de mundo
-          dragPixelsForFullRange: { type: "number", default: 300 }, // sensibilidad
-
-          invertDrag: { type: "boolean", default: true } // ✅ al revés (si antes bajaba)
+          maxScale:  { type: "number", default: 15.0 }
         },
 
         init: function () {
-          this.mode = null; // "PINCH" | "DRAG"
-          this.dragKind = null; // "LID" | "ROT"
-
+          this.pinching = false;
           this.prevDist = 0;
-
-          this.startX = 0;
-          this.startY = 0;
-
-          // estado inicial tapa para drag absoluto
-          this.lidStartWorld = null; // Vector3
-          this.lidStartOffsetY = 0;  // offset inicial vs baseWorld.y
 
           this.onTouchStart = this.onTouchStart.bind(this);
           this.onTouchMove  = this.onTouchMove.bind(this);
           this.onTouchEnd   = this.onTouchEnd.bind(this);
 
+          // cuando cargue el modelo, pon ejes
+          this.el.addEventListener("model-loaded", () => {
+            const root = this.el.object3D;
+
+            // ejes del modelo completo
+            root.add(new THREE.AxesHelper(0.6));
+
+            // (opcional) ejes en tapa si existe (ajusta nombre si cambia)
+            const tapa = root.getObjectByName("tapa_v31");
+            if (tapa) tapa.add(new THREE.AxesHelper(0.3));
+
+            console.log("✅ model-loaded OK");
+          });
+
+          this.el.addEventListener("model-error", (e) => {
+            console.error("❌ Error cargando GLB:", e?.detail || e);
+          });
+
+          // esperar canvas y agregar listeners touch
           const waitForCanvas = () => {
             if (this.el.sceneEl && this.el.sceneEl.canvas) {
               const canvas = this.el.sceneEl.canvas;
               canvas.addEventListener("touchstart", this.onTouchStart, { passive: true });
               canvas.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
               canvas.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
+              canvas.addEventListener("touchcancel",this.onTouchEnd,   { passive: true });
             } else {
               setTimeout(waitForCanvas, 100);
             }
@@ -122,7 +79,7 @@
           return Math.max(min, Math.min(max, v));
         },
 
-        dist: function (t1, t2) {
+        touchDistance: function (t1, t2) {
           const dx = t2.clientX - t1.clientX;
           const dy = t2.clientY - t1.clientY;
           return Math.hypot(dx, dy);
@@ -130,122 +87,34 @@
 
         onTouchStart: function (e) {
           if (e.touches.length === 2) {
-            this.mode = "PINCH";
-            this.dragKind = null;
-            this.prevDist = this.dist(e.touches[0], e.touches[1]);
-            return;
-          }
-
-          if (e.touches.length === 1) {
-            this.mode = "DRAG";
-            this.dragKind = null;
-
-            const t = e.touches[0];
-            this.startX = t.clientX;
-            this.startY = t.clientY;
-
-            // capturar estado inicial de tapa
-            if (window.NODES && NODES.tapa && NODES.tapaBaseWorld) {
-              const wpos = new THREE.Vector3();
-              NODES.tapa.getWorldPosition(wpos);
-              this.lidStartWorld = wpos.clone();
-              this.lidStartOffsetY = wpos.y - NODES.tapaBaseWorld.y;
-            } else {
-              this.lidStartWorld = null;
-              this.lidStartOffsetY = 0;
-            }
+            this.pinching = true;
+            this.prevDist = this.touchDistance(e.touches[0], e.touches[1]);
           }
         },
 
         onTouchMove: function (e) {
+          if (!this.pinching || e.touches.length !== 2) return;
           if (e.cancelable) e.preventDefault();
 
-          // 2 dedos: zoom
-          if (this.mode === "PINCH" && e.touches.length === 2) {
-            const d = this.dist(e.touches[0], e.touches[1]);
-            const delta = d - this.prevDist;
-            this.prevDist = d;
+          const dist = this.touchDistance(e.touches[0], e.touches[1]);
+          const delta = dist - this.prevDist;
+          this.prevDist = dist;
 
-            const factor = 1 + (delta * this.data.zoomSpeed);
-            const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
+          const factor = 1 + (delta * this.data.zoomSpeed);
 
-            this.el.setAttribute("scale", {
-              x: this.clamp(s.x * factor, this.data.minScale, this.data.maxScale),
-              y: this.clamp(s.y * factor, this.data.minScale, this.data.maxScale),
-              z: this.clamp(s.z * factor, this.data.minScale, this.data.maxScale),
-            });
-            return;
-          }
+          const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
+          const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
+          const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
+          const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
 
-          // 1 dedo: vertical mueve tapa / horizontal rota modelo
-          if (this.mode === "DRAG" && e.touches.length === 1) {
-            const t = e.touches[0];
-            const dxTotal = t.clientX - this.startX;
-            const dyTotal = t.clientY - this.startY;
-
-            const absDx = Math.abs(dxTotal);
-            const absDy = Math.abs(dyTotal);
-
-            // decidir modo una sola vez para que no se “vaya donde le da la gana”
-            if (!this.dragKind) {
-              this.dragKind = (absDy > absDx) ? "LID" : "ROT";
-            }
-
-            // --- mover tapa SOLO en Y del mundo (invertido) ---
-            if (
-              this.dragKind === "LID" &&
-              window.NODES &&
-              NODES.tapa &&
-              NODES.tapaBaseWorld &&
-              this.lidStartWorld
-            ) {
-              // dedo sube => dyTotal negativo => queremos subir => offset positivo
-              // si invertDrag true, invertimos el sentido
-              const sign = this.data.invertDrag ? -1 : 1;
-
-              const offsetFromDrag =
-                (-dyTotal) *
-                (this.data.lidMoveRange / this.data.dragPixelsForFullRange) *
-                sign;
-
-              const targetOffsetY = this.clamp(
-                this.lidStartOffsetY + offsetFromDrag,
-                -this.data.lidMoveRange,
-                this.data.lidMoveRange
-              );
-
-              // nueva posición en mundo = baseWorld + offsetY (SOLO Y)
-              const wpos = this.lidStartWorld.clone();
-              wpos.y = NODES.tapaBaseWorld.y + targetOffsetY;
-
-              // mundo -> local del padre
-              const parent = NODES.tapa.parent;
-              if (parent) parent.worldToLocal(wpos);
-
-              NODES.tapa.position.copy(wpos);
-              return;
-            }
-
-            // --- rotar modelo completo (horizontal) ---
-            if (this.dragKind === "ROT") {
-              const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
-              this.el.setAttribute("rotation", {
-                x: rot.x,
-                y: rot.y + dxTotal * this.data.rotateSpeed * 0.01,
-                z: rot.z
-              });
-
-              // reset para rotación suave continua
-              this.startX = t.clientX;
-              this.startY = t.clientY;
-            }
-          }
+          this.el.setAttribute("scale", { x: nx, y: ny, z: nz });
         },
 
-        onTouchEnd: function () {
-          this.mode = null;
-          this.dragKind = null;
-          this.lidStartWorld = null;
+        onTouchEnd: function (e) {
+          if (e.touches.length < 2) {
+            this.pinching = false;
+            this.prevDist = 0;
+          }
         }
       });
     </script>
