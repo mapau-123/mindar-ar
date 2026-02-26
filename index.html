@@ -4,9 +4,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <style>
+      html, body { margin: 0; overflow: hidden; }
+      body { touch-action: none; } /* clave para gestos */
+    </style>
   </head>
 
-  <body style="margin:0; overflow:hidden;">
+  <body>
     <a-scene
       mindar-image="imageTargetSrc: ./targets.mind;"
       vr-mode-ui="enabled: false"
@@ -21,35 +25,48 @@
           position="0 0 0"
           rotation="0 0 0"
           scale="5 5 5"
-          pinch-zoom
+          gesture-controls
         ></a-gltf-model>
       </a-entity>
     </a-scene>
 
     <script>
-      AFRAME.registerComponent("pinch-zoom", {
+      AFRAME.registerComponent("gesture-controls", {
         schema: {
+          // Zoom (2 dedos)
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
-          maxScale:  { type: "number", default: 15.0 }
+          maxScale:  { type: "number", default: 15.0 },
+
+          // Rotación (1 dedo) - solo eje Y
+          rotateSpeed: { type: "number", default: 0.25 }, // grados por pixel aprox
+          minMovePx:   { type: "number", default: 1 }
         },
 
         init: function () {
-          this.pinching = false;
+          this.mode = null; // "pinch" | "rotate" | null
           this.prevDist = 0;
+          this.prevX = 0;
+          this.prevY = 0;
+
+          // Raycaster para saber si el toque cae sobre el modelo
+          this.raycaster = new THREE.Raycaster();
+          this.ndc = new THREE.Vector2();
+          this._camera = null;
+          this._canvas = null;
 
           this.onTouchStart = this.onTouchStart.bind(this);
           this.onTouchMove  = this.onTouchMove.bind(this);
           this.onTouchEnd   = this.onTouchEnd.bind(this);
 
-          // cuando cargue el modelo, pon ejes
+          // Ejes al cargar el modelo
           this.el.addEventListener("model-loaded", () => {
             const root = this.el.object3D;
 
             // ejes del modelo completo
             root.add(new THREE.AxesHelper(0.6));
 
-            // (opcional) ejes en tapa si existe (ajusta nombre si cambia)
+            // ejes en tapa si existe (ajusta nombre si cambia)
             const tapa = root.getObjectByName("tapa_v31");
             if (tapa) tapa.add(new THREE.AxesHelper(0.3));
 
@@ -60,14 +77,17 @@
             console.error("❌ Error cargando GLB:", e?.detail || e);
           });
 
-          // esperar canvas y agregar listeners touch
+          // Esperar canvas y cámara
           const waitForCanvas = () => {
-            if (this.el.sceneEl && this.el.sceneEl.canvas) {
-              const canvas = this.el.sceneEl.canvas;
-              canvas.addEventListener("touchstart", this.onTouchStart, { passive: true });
+            if (this.el.sceneEl && this.el.sceneEl.canvas && this.el.sceneEl.camera) {
+              this._canvas = this.el.sceneEl.canvas;
+              this._camera = this.el.sceneEl.camera;
+
+              const canvas = this._canvas;
+              canvas.addEventListener("touchstart", this.onTouchStart, { passive: false });
               canvas.addEventListener("touchmove",  this.onTouchMove,  { passive: false });
-              canvas.addEventListener("touchend",   this.onTouchEnd,   { passive: true });
-              canvas.addEventListener("touchcancel",this.onTouchEnd,   { passive: true });
+              canvas.addEventListener("touchend",   this.onTouchEnd,   { passive: false });
+              canvas.addEventListener("touchcancel",this.onTouchEnd,   { passive: false });
             } else {
               setTimeout(waitForCanvas, 100);
             }
@@ -85,36 +105,114 @@
           return Math.hypot(dx, dy);
         },
 
+        _touchHitsModel: function (touch) {
+          if (!this._camera || !this._canvas) return false;
+
+          const rect = this._canvas.getBoundingClientRect();
+
+          // Normalized Device Coordinates (-1 a 1)
+          this.ndc.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+          this.ndc.y = -(((touch.clientY - rect.top) / rect.height) * 2 - 1);
+
+          // mantener matrices al día
+          this.el.object3D.updateMatrixWorld(true);
+
+          this.raycaster.setFromCamera(this.ndc, this._camera);
+
+          // Intersectar contra el árbol completo del modelo
+          const hits = this.raycaster.intersectObject(this.el.object3D, true);
+          return hits.length > 0;
+        },
+
         onTouchStart: function (e) {
+          if (e.cancelable) e.preventDefault();
+
+          // ✅ 2 dedos: SIEMPRE zoom, toque donde toque (modelo o no)
           if (e.touches.length === 2) {
-            this.pinching = true;
+            this.mode = "pinch";
             this.prevDist = this.touchDistance(e.touches[0], e.touches[1]);
+            return;
+          }
+
+          // ✅ 1 dedo: rotar SOLO si el toque empezó fuera del modelo
+          if (e.touches.length === 1) {
+            const touchedModel = this._touchHitsModel(e.touches[0]);
+            if (touchedModel) {
+              this.mode = null; // libre para futuras interacciones con piezas
+              return;
+            }
+            this.mode = "rotate";
+            this.prevX = e.touches[0].clientX;
+            this.prevY = e.touches[0].clientY;
           }
         },
 
         onTouchMove: function (e) {
-          if (!this.pinching || e.touches.length !== 2) return;
+          if (!this.mode) return;
           if (e.cancelable) e.preventDefault();
 
-          const dist = this.touchDistance(e.touches[0], e.touches[1]);
-          const delta = dist - this.prevDist;
-          this.prevDist = dist;
+          // PINCH: siempre permitido
+          if (this.mode === "pinch") {
+            if (e.touches.length !== 2) return;
 
-          const factor = 1 + (delta * this.data.zoomSpeed);
+            const dist = this.touchDistance(e.touches[0], e.touches[1]);
+            const delta = dist - this.prevDist;
+            this.prevDist = dist;
 
-          const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
-          const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
-          const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
-          const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
+            const factor = 1 + (delta * this.data.zoomSpeed);
 
-          this.el.setAttribute("scale", { x: nx, y: ny, z: nz });
+            const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
+            const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
+            const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
+            const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
+
+            this.el.setAttribute("scale", { x: nx, y: ny, z: nz });
+            return;
+          }
+
+          // ROTATE: solo 1 dedo (y solo se activó si empezó fuera del modelo)
+          if (this.mode === "rotate") {
+            if (e.touches.length !== 1) return;
+
+            const x = e.touches[0].clientX;
+            const y = e.touches[0].clientY;
+
+            const dx = x - this.prevX;
+            const dy = y - this.prevY;
+
+            if (Math.abs(dx) < this.data.minMovePx && Math.abs(dy) < this.data.minMovePx) return;
+
+            this.prevX = x;
+            this.prevY = y;
+
+            const rot = this.el.getAttribute("rotation") || { x: 0, y: 0, z: 0 };
+            const newY = rot.y + (dx * this.data.rotateSpeed);
+
+            this.el.setAttribute("rotation", { x: rot.x, y: newY, z: rot.z });
+          }
         },
 
         onTouchEnd: function (e) {
-          if (e.touches.length < 2) {
-            this.pinching = false;
-            this.prevDist = 0;
+          if (e.cancelable) e.preventDefault();
+
+          // Si quedan 2 dedos, seguimos pinch
+          if (e.touches.length === 2) {
+            this.mode = "pinch";
+            this.prevDist = this.touchDistance(e.touches[0], e.touches[1]);
+            return;
           }
+
+          // Si queda 1 dedo, NO activamos rotate automáticamente:
+          // así evitamos que si el dedo quedó sobre el modelo rote.
+          if (e.touches.length === 1) {
+            this.mode = null;
+            this.prevDist = 0;
+            return;
+          }
+
+          // 0 dedos
+          this.mode = null;
+          this.prevDist = 0;
         }
       });
     </script>
