@@ -171,7 +171,7 @@
           if (!this.tapaObj) return;
           this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
 
-          const rad = THREE.MathUtils.degToRad(this.tapaAngleDeg);
+          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg);
           const axis = (this.data.tapaAxis || "x").toLowerCase();
 
           // Si al girar te queda al revés, invierte el signo (rad -> -rad)
@@ -302,4 +302,5 @@
     </script>
   </body>
 </html>
+
 
