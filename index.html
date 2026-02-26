@@ -67,6 +67,13 @@
           this.tapaAngleDeg = 0;       // estado actual 0..180
           this.tapaStartAngleDeg = 0;  // para calcular delta durante el drag
 
+          // Tapa: drag más natural (por distancia recorrida)
+          this.tapaIntent = null;     // "open" | "close" | null
+          this.tapaAccumPx = 0;       // distancia acumulada del gesto
+          this.tapaLastX = 0;
+          this.tapaLastY = 0;
+          this.intentThresholdPx = 6; // umbral para decidir intención
+
           // refs THREE
           this.modelRoot = null;
           this.tapaObj = null;
@@ -206,13 +213,16 @@
             const touchedTapa = hits.length > 0 && this._hitIsTapa(hits[0].object);
 
             if (touchedTapa) {
-              // modo pieza: tapa
               this.draggingPart = "tapa";
               this.isRotating = false;
               this.isPinching = false;
-
-              this.dragStartY = e.clientY;
-              this.tapaStartAngleDeg = this.tapaAngleDeg; // ángulo actual al empezar
+            
+              // iniciar gesto
+              this.tapaStartAngleDeg = this.tapaAngleDeg;
+              this.tapaIntent = null;
+              this.tapaAccumPx = 0;
+              this.tapaLastX = e.clientX;
+              this.tapaLastY = e.clientY;
               return;
             }
 
@@ -250,12 +260,32 @@
 
           // arrastre de tapa (1 dedo)
           if (this.draggingPart === "tapa" && this.pointers.size === 1) {
-            const dy = e.clientY - this.dragStartY;
-
-            // Arrastrar hacia arriba debería abrir:
-            // si te abre al revés, cambia a: (this.tapaStartAngleDeg + dy * ...)
-            const nextDeg = this.tapaStartAngleDeg - (dy * this.data.tapaDegPerPx);
-
+            const dx = e.clientX - this.tapaLastX;
+            const dy = e.clientY - this.tapaLastY;
+          
+            // actualizar para el siguiente frame
+            this.tapaLastX = e.clientX;
+            this.tapaLastY = e.clientY;
+          
+            // cuánto avanzó el dedo (independiente de si sube/baja)
+            const step = Math.hypot(dx, dy);
+          
+            // decidir intención solo una vez al inicio, según el primer movimiento claro
+            if (!this.tapaIntent && step > this.intentThresholdPx) {
+              // dy < 0 significa que empezó moviendo hacia arriba → abrir
+              this.tapaIntent = (dy < 0) ? "open" : "close";
+            }
+          
+            if (!this.tapaIntent) return; // aún no hay intención clara
+          
+            this.tapaAccumPx += step;
+          
+            const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
+            const nextDeg =
+              this.tapaIntent === "open"
+                ? (this.tapaStartAngleDeg + deltaDeg)
+                : (this.tapaStartAngleDeg - deltaDeg);
+          
             this._applyTapaAngleDeg(nextDeg);
             return;
           }
@@ -297,11 +327,14 @@
           this.isRotating = false;
           this.draggingPart = null;
           this.prevDist = 0;
+          this.tapaIntent = null;
+          this.tapaAccumPx = 0;
         }
       });
     </script>
   </body>
 </html>
+
 
 
 
