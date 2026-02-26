@@ -6,7 +6,7 @@
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
     <style>
       html, body { margin: 0; overflow: hidden; }
-      body { touch-action: none; } /* clave */
+      body { touch-action: none; }
     </style>
   </head>
 
@@ -25,7 +25,7 @@
           position="0 0 0"
           rotation="0 0 0"
           scale="5 5 5"
-          gesture-controls
+          gesture-controls="tapaName: tapa_v31; tapaAxis: x; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
         ></a-gltf-model>
       </a-entity>
     </a-scene>
@@ -38,36 +38,61 @@
           minScale:  { type: "number", default: 0.8 },
           maxScale:  { type: "number", default: 15.0 },
 
-          // Rotación 1 dedo
-          rotateSpeed: { type: "number", default: 0.008 }, // radianes por pixel aprox
-          minMovePx:   { type: "number", default: 1 }
+          // Rotación global (1 dedo)
+          rotateSpeed: { type: "number", default: 0.008 }, // rad/pixel
+          minMovePx:   { type: "number", default: 1 },
+
+          // Tapa interactiva
+          tapaName:     { type: "string", default: "tapa_v31" },
+          tapaAxis:     { type: "string", default: "x" },   // "x" | "y" | "z"
+          tapaMinDeg:   { type: "number", default: 0 },
+          tapaMaxDeg:   { type: "number", default: 180 },
+          tapaDegPerPx: { type: "number", default: 0.5 }    // grados por pixel vertical
         },
 
         init: function () {
           this.canvas = null;
+          this.camera = null;
 
           // pointers activos: id -> {x,y}
           this.pointers = new Map();
 
-          // pinch
+          // estados
           this.isPinching = false;
-          this.prevDist = 0;
-
-          // rotate
           this.isRotating = false;
+
+          // interacción de pieza
+          this.draggingPart = null; // "tapa" | null
+          this.dragStartY = 0;
+          this.tapaAngleDeg = 0;       // estado actual 0..180
+          this.tapaStartAngleDeg = 0;  // para calcular delta durante el drag
+
+          // refs THREE
+          this.modelRoot = null;
+          this.tapaObj = null;
+
+          // raycast
+          this.raycaster = new THREE.Raycaster();
+          this.ndc = new THREE.Vector2();
+
+          this.prevDist = 0;
           this.prevX = 0;
 
           this.onPointerDown = this.onPointerDown.bind(this);
           this.onPointerMove = this.onPointerMove.bind(this);
           this.onPointerUp   = this.onPointerUp.bind(this);
 
-          // Ejes al cargar el modelo
           this.el.addEventListener("model-loaded", () => {
-            const root = this.el.object3D;
-            root.add(new THREE.AxesHelper(0.6));
+            this.modelRoot = this.el.object3D;
+            this.modelRoot.add(new THREE.AxesHelper(0.6));
 
-            const tapa = root.getObjectByName("tapa_v31");
-            if (tapa) tapa.add(new THREE.AxesHelper(0.3));
+            this.tapaObj = this.modelRoot.getObjectByName(this.data.tapaName);
+            if (this.tapaObj) {
+              this.tapaObj.add(new THREE.AxesHelper(0.3));
+              console.log("✅ Tapa encontrada:", this.data.tapaName);
+            } else {
+              console.warn("⚠️ No encontré la tapa con nombre:", this.data.tapaName);
+            }
 
             console.log("✅ model-loaded OK");
           });
@@ -76,16 +101,15 @@
             console.error("❌ Error cargando GLB:", e?.detail || e);
           });
 
-          // Esperar el canvas real del renderer
+          // Esperar renderer/canvas/cámara reales
           const waitForCanvas = () => {
             const scene = this.el.sceneEl;
-            if (scene && scene.renderer && scene.renderer.domElement) {
+            if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
               this.canvas = scene.renderer.domElement;
+              this.camera = scene.camera;
 
-              // MUY importante para que no haga scroll/zoom nativo
               this.canvas.style.touchAction = "none";
 
-              // listeners (usar capture ayuda a que no se los “robe” otra capa)
               this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
               window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
               window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
@@ -119,43 +143,95 @@
           return Math.hypot(dx, dy);
         },
 
-        onPointerDown: function (e) {
-          // solo gestos táctiles (si quieres también mouse, quita esta línea)
-          if (e.pointerType !== "touch") return;
+        _intersectModel: function (clientX, clientY) {
+          if (!this.canvas || !this.camera || !this.modelRoot) return [];
+          const rect = this.canvas.getBoundingClientRect();
 
+          this.ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+          this.ndc.y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+
+          this.modelRoot.updateMatrixWorld(true);
+          this.raycaster.setFromCamera(this.ndc, this.camera);
+
+          return this.raycaster.intersectObject(this.modelRoot, true);
+        },
+
+        _hitIsTapa: function (hitObj) {
+          if (!this.tapaObj) return false;
+          // El hit puede ser un mesh hijo: subimos por parent hasta encontrar tapaObj
+          let o = hitObj;
+          while (o) {
+            if (o === this.tapaObj) return true;
+            o = o.parent;
+          }
+          return false;
+        },
+
+        _applyTapaAngleDeg: function (deg) {
+          if (!this.tapaObj) return;
+          this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
+
+          const rad = THREE.MathUtils.degToRad(this.tapaAngleDeg);
+          const axis = (this.data.tapaAxis || "x").toLowerCase();
+
+          // Si al girar te queda al revés, invierte el signo (rad -> -rad)
+          if (axis === "x") this.tapaObj.rotation.x = rad;
+          else if (axis === "y") this.tapaObj.rotation.y = rad;
+          else this.tapaObj.rotation.z = rad;
+        },
+
+        onPointerDown: function (e) {
+          if (e.pointerType !== "touch") return;
           if (e.cancelable) e.preventDefault();
 
-          // capturar el pointer para que no se pierda si sale del canvas
           try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+          // 2 dedos -> pinch siempre
+          if (this.pointers.size === 2) {
+            this.isPinching = true;
+            this.isRotating = false;
+            this.draggingPart = null;
+
+            this.prevDist = this._dist2Pointers();
+            return;
+          }
+
+          // 1 dedo -> ver si tocó la tapa
           if (this.pointers.size === 1) {
-            // 1 dedo -> rotar
+            // Intentar detectar tapa con raycast
+            const hits = this._intersectModel(e.clientX, e.clientY);
+
+            const touchedTapa = hits.length > 0 && this._hitIsTapa(hits[0].object);
+
+            if (touchedTapa) {
+              // modo pieza: tapa
+              this.draggingPart = "tapa";
+              this.isRotating = false;
+              this.isPinching = false;
+
+              this.dragStartY = e.clientY;
+              this.tapaStartAngleDeg = this.tapaAngleDeg; // ángulo actual al empezar
+              return;
+            }
+
+            // si no tocó tapa: rotación global
+            this.draggingPart = null;
             this.isRotating = true;
             this.isPinching = false;
             this.prevX = e.clientX;
-          } else if (this.pointers.size === 2) {
-            // 2 dedos -> pinch (siempre permitido)
-            this.isPinching = true;
-            this.isRotating = false;
-            this.prevDist = this._dist2Pointers();
-          } else {
-            // 3+ dedos: ignorar
-            this.isPinching = false;
-            this.isRotating = false;
           }
         },
 
         onPointerMove: function (e) {
           if (e.pointerType !== "touch") return;
           if (!this.pointers.has(e.pointerId)) return;
-
           if (e.cancelable) e.preventDefault();
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-          // Pinch
+          // pinch
           if (this.isPinching && this.pointers.size === 2) {
             const dist = this._dist2Pointers();
             const delta = dist - this.prevDist;
@@ -172,13 +248,24 @@
             return;
           }
 
-          // Rotación (solo Y)
+          // arrastre de tapa (1 dedo)
+          if (this.draggingPart === "tapa" && this.pointers.size === 1) {
+            const dy = e.clientY - this.dragStartY;
+
+            // Arrastrar hacia arriba debería abrir:
+            // si te abre al revés, cambia a: (this.tapaStartAngleDeg + dy * ...)
+            const nextDeg = this.tapaStartAngleDeg - (dy * this.data.tapaDegPerPx);
+
+            this._applyTapaAngleDeg(nextDeg);
+            return;
+          }
+
+          // rotación global (1 dedo)
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
             if (Math.abs(dx) < this.data.minMovePx) return;
             this.prevX = e.clientX;
 
-            // aplicar directo al object3D (en radianes)
             this.el.object3D.rotation.y += dx * this.data.rotateSpeed;
           }
         },
@@ -192,17 +279,24 @@
           if (this.pointers.size === 2) {
             this.isPinching = true;
             this.isRotating = false;
+            this.draggingPart = null;
             this.prevDist = this._dist2Pointers();
-          } else if (this.pointers.size === 1) {
-            this.isRotating = true;
-            this.isPinching = false;
-            const only = Array.from(this.pointers.values())[0];
-            this.prevX = only.x;
-          } else {
-            this.isRotating = false;
-            this.isPinching = false;
-            this.prevDist = 0;
+            return;
           }
+
+          if (this.pointers.size === 1) {
+            // No reactivamos nada automático: esperamos nuevo pointerdown
+            this.isPinching = false;
+            this.isRotating = false;
+            this.draggingPart = null;
+            this.prevDist = 0;
+            return;
+          }
+
+          this.isPinching = false;
+          this.isRotating = false;
+          this.draggingPart = null;
+          this.prevDist = 0;
         }
       });
     </script>
