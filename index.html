@@ -47,7 +47,7 @@
           tapaAxis:     { type: "string", default: "x" },   // "x" | "y" | "z"
           tapaMinDeg:   { type: "number", default: 0 },
           tapaMaxDeg:   { type: "number", default: 180 },
-          tapaDegPerPx: { type: "number", default: 0.5 }    // grados por pixel vertical
+          tapaDegPerPx: { type: "number", default: 0.5 }    // grados por pixel
         },
 
         init: function () {
@@ -61,20 +61,16 @@
           this.isPinching = false;
           this.isRotating = false;
 
-          // interacción de pieza
+          // interacción tapa
           this.draggingPart = null; // "tapa" | null
-          this.dragStartY = 0;
-          this.tapaAngleDeg = 0;       // estado actual 0..180
-          this.tapaStartAngleDeg = 0;  // para calcular delta durante el drag
+          this.tapaAngleDeg = 0;
+          this.tapaStartAngleDeg = 0;
 
-          // Tapa: drag más natural (por distancia recorrida)
-          this.tapaIntent = null;     // "open" | "close" | null
-          this.tapaAccumPx = 0;       // distancia acumulada del gesto
+          // drag natural
+          this.tapaIntent = null; // "open" | "close"
+          this.tapaAccumPx = 0;
           this.tapaLastX = 0;
           this.tapaLastY = 0;
-          this.intentThresholdPx = 6; // umbral para decidir intención
-          this.flipThresholdPx = 14;       // cuanto “contra” debe moverse para cambiar intención
-          this.tapaAgainstPx = 0;          // acumulado en contra (para flip)
 
           // refs THREE
           this.modelRoot = null;
@@ -84,6 +80,7 @@
           this.raycaster = new THREE.Raycaster();
           this.ndc = new THREE.Vector2();
 
+          // pinch/rotate vars
           this.prevDist = 0;
           this.prevX = 0;
 
@@ -110,7 +107,6 @@
             console.error("❌ Error cargando GLB:", e?.detail || e);
           });
 
-          // Esperar renderer/canvas/cámara reales
           const waitForCanvas = () => {
             const scene = this.el.sceneEl;
             if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
@@ -130,14 +126,6 @@
             }
           };
           waitForCanvas();
-        },
-
-        remove: function () {
-          if (!this.canvas) return;
-          this.canvas.removeEventListener("pointerdown", this.onPointerDown, { capture: true });
-          window.removeEventListener("pointermove", this.onPointerMove, { capture: true });
-          window.removeEventListener("pointerup", this.onPointerUp, { capture: true });
-          window.removeEventListener("pointercancel", this.onPointerUp, { capture: true });
         },
 
         clamp: function (v, min, max) {
@@ -167,7 +155,6 @@
 
         _hitIsTapa: function (hitObj) {
           if (!this.tapaObj) return false;
-          // El hit puede ser un mesh hijo: subimos por parent hasta encontrar tapaObj
           let o = hitObj;
           while (o) {
             if (o === this.tapaObj) return true;
@@ -180,10 +167,10 @@
           if (!this.tapaObj) return;
           this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
 
+          // invertido para que abra "bien"
           const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg);
           const axis = (this.data.tapaAxis || "x").toLowerCase();
 
-          // Si al girar te queda al revés, invierte el signo (rad -> -rad)
           if (axis === "x") this.tapaObj.rotation.x = rad;
           else if (axis === "y") this.tapaObj.rotation.y = rad;
           else this.tapaObj.rotation.z = rad;
@@ -207,34 +194,29 @@
             return;
           }
 
-          // 1 dedo -> ver si tocó la tapa
+          // 1 dedo
           if (this.pointers.size === 1) {
-            // Intentar detectar tapa con raycast
             const hits = this._intersectModel(e.clientX, e.clientY);
-
             const touchedTapa = hits.length > 0 && this._hitIsTapa(hits[0].object);
 
             if (touchedTapa) {
               this.draggingPart = "tapa";
               this.isRotating = false;
               this.isPinching = false;
-            
-              this.tapaStartAngleDeg = this.tapaAngleDeg;
-            
-              // 👇 Intención por defecto según qué tan abierta está
-              const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2;
+
+              // intención por defecto según ángulo actual
+              const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2; // 90
               this.tapaIntent = (this.tapaAngleDeg >= mid) ? "close" : "open";
-            
-              // reset del gesto
+
+              // reset gesture
+              this.tapaStartAngleDeg = this.tapaAngleDeg;
               this.tapaAccumPx = 0;
-              this.tapaAgainstPx = 0;
               this.tapaLastX = e.clientX;
               this.tapaLastY = e.clientY;
-            
               return;
             }
 
-            // si no tocó tapa: rotación global
+            // rotación global
             this.draggingPart = null;
             this.isRotating = true;
             this.isPinching = false;
@@ -266,79 +248,55 @@
             return;
           }
 
-          // arrastre de tapa (1 dedo)
+          // tapa (1 dedo)
           if (this.draggingPart === "tapa" && this.pointers.size === 1) {
             const dx = e.clientX - this.tapaLastX;
             const dy = e.clientY - this.tapaLastY;
-          
+
             this.tapaLastX = e.clientX;
             this.tapaLastY = e.clientY;
-          
+
             const step = Math.hypot(dx, dy);
             if (step < 0.5) return;
-          
-            // OPEN: se comporta como ya te gustó (avance por distancia, sin importar la curva)
+
+            const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2; // 90
+
+            // OPEN: avance por distancia (curvas ok)
             if (this.tapaIntent === "open") {
               this.tapaAccumPx += step;
               const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
-              const nextDeg = this.tapaStartAngleDeg + deltaDeg;
-              this._applyTapaAngleDeg(nextDeg);
+              this._applyTapaAngleDeg(this.tapaStartAngleDeg + deltaDeg);
               return;
             }
-          
-            // CLOSE (modo U inversa):
-            // 180 -> 90: gesto esperado = ARRIBA (dy < 0)
-            // 90  -> 0 : gesto esperado = ABAJO (dy > 0)
-          
-            const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2; // 90 si 0..180
+
+            // CLOSE: U inversa
+            // 180->90: dedo ARRIBA (dy<0)
+            // 90->0:   dedo ABAJO (dy>0)
             const inTopHalf = this.tapaAngleDeg > mid;
-          
-            const expectsUp = inTopHalf;      // 180..90
-            const expectsDown = !inTopHalf;   // 90..0
-          
+            const expectsUp = inTopHalf;
             const goingUp = dy < 0;
             const goingDown = dy > 0;
-          
-            // magnitud a acumular (permitimos diagonales pero el "sentido" lo manda dy)
-            const mag = step;
-          
-            // Si el usuario se mueve en el sentido esperado, avanzamos cierre
+
             let advancePx = 0;
-            if (expectsUp && goingUp) advancePx = mag;
-            if (expectsDown && goingDown) advancePx = mag;
-          
-            // Si no va en el sentido esperado, no avanzamos (evita que se sienta "raro")
+            if (expectsUp && goingUp) advancePx = step;
+            if (!expectsUp && goingDown) advancePx = step;
+
             if (advancePx <= 0) return;
-          
-            // OJO: cuando cambias de mitad (cruzas 90°), reinicia base para que no pegue saltos
-            // Detectamos cambio de fase si el próximo ángulo cruzaría el mid.
+
             this.tapaAccumPx += advancePx;
-          
+
             const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
             const candidate = this.tapaStartAngleDeg - deltaDeg;
-          
-            // Si vamos a cruzar el mid, clavamos exactamente al mid y reiniciamos acumulados
+
+            // si cruzamos 90, clavamos a 90 y reiniciamos fase
             if (this.tapaStartAngleDeg > mid && candidate <= mid) {
               this._applyTapaAngleDeg(mid);
               this.tapaStartAngleDeg = mid;
               this.tapaAccumPx = 0;
               return;
             }
-          
+
             this._applyTapaAngleDeg(candidate);
-            return;
-          }
-          
-            // Avance acumulado (permite curvas naturales)
-            this.tapaAccumPx += step;
-          
-            const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
-            const nextDeg =
-              this.tapaIntent === "open"
-                ? (this.tapaStartAngleDeg + deltaDeg)
-                : (this.tapaStartAngleDeg - deltaDeg);
-          
-            this._applyTapaAngleDeg(nextDeg);
             return;
           }
 
@@ -347,7 +305,6 @@
             const dx = e.clientX - this.prevX;
             if (Math.abs(dx) < this.data.minMovePx) return;
             this.prevX = e.clientX;
-
             this.el.object3D.rotation.y += dx * this.data.rotateSpeed;
           }
         },
@@ -366,29 +323,19 @@
             return;
           }
 
-          if (this.pointers.size === 1) {
-            // No reactivamos nada automático: esperamos nuevo pointerdown
-            this.isPinching = false;
-            this.isRotating = false;
-            this.draggingPart = null;
-            this.prevDist = 0;
-            return;
-          }
-
+          // al soltar, reseteamos modos (evita que se quede pegado)
           this.isPinching = false;
           this.isRotating = false;
           this.draggingPart = null;
           this.prevDist = 0;
+
           this.tapaAccumPx = 0;
-          this.tapaAgainstPx = 0;
           this.tapaIntent = null;
         }
       });
     </script>
   </body>
 </html>
-
-
 
 
 
