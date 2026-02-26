@@ -73,6 +73,8 @@
           this.tapaLastX = 0;
           this.tapaLastY = 0;
           this.intentThresholdPx = 6; // umbral para decidir intención
+          this.flipThresholdPx = 14;       // cuanto “contra” debe moverse para cambiar intención
+          this.tapaAgainstPx = 0;          // acumulado en contra (para flip)
 
           // refs THREE
           this.modelRoot = null;
@@ -217,12 +219,18 @@
               this.isRotating = false;
               this.isPinching = false;
             
-              // iniciar gesto
               this.tapaStartAngleDeg = this.tapaAngleDeg;
-              this.tapaIntent = null;
+            
+              // 👇 Intención por defecto según qué tan abierta está
+              const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2;
+              this.tapaIntent = (this.tapaAngleDeg >= mid) ? "close" : "open";
+            
+              // reset del gesto
               this.tapaAccumPx = 0;
+              this.tapaAgainstPx = 0;
               this.tapaLastX = e.clientX;
               this.tapaLastY = e.clientY;
+            
               return;
             }
 
@@ -263,21 +271,36 @@
             const dx = e.clientX - this.tapaLastX;
             const dy = e.clientY - this.tapaLastY;
           
-            // actualizar para el siguiente frame
             this.tapaLastX = e.clientX;
             this.tapaLastY = e.clientY;
           
-            // cuánto avanzó el dedo (independiente de si sube/baja)
             const step = Math.hypot(dx, dy);
+            if (step < 0.01) return;
           
-            // decidir intención solo una vez al inicio, según el primer movimiento claro
-            if (!this.tapaIntent && step > this.intentThresholdPx) {
-              // dy < 0 significa que empezó moviendo hacia arriba → abrir
-              this.tapaIntent = (dy < 0) ? "open" : "close";
+            // “Dirección vertical” del segmento (solo para detectar si vas abriendo o cerrando)
+            // dy < 0 = moviste hacia arriba
+            const segmentSaysOpen = (dy < 0);
+            const segmentSaysClose = (dy > 0);
+          
+            // Si te mueves consistente CONTRA la intención, acumulamos para permitir flip
+            const goingAgainst =
+              (this.tapaIntent === "open"  && segmentSaysClose) ||
+              (this.tapaIntent === "close" && segmentSaysOpen);
+          
+            if (goingAgainst) this.tapaAgainstPx += step;
+            else this.tapaAgainstPx = Math.max(0, this.tapaAgainstPx - step * 0.5); // se “enfría” si vuelves a favor
+          
+            // Si te devolviste lo suficiente, cambiamos intención en caliente
+            if (this.tapaAgainstPx >= this.flipThresholdPx) {
+              this.tapaIntent = (this.tapaIntent === "open") ? "close" : "open";
+              this.tapaAgainstPx = 0;
+          
+              // reiniciar referencia para que no “salte”
+              this.tapaStartAngleDeg = this.tapaAngleDeg;
+              this.tapaAccumPx = 0;
             }
           
-            if (!this.tapaIntent) return; // aún no hay intención clara
-          
+            // Avance acumulado (permite curvas naturales)
             this.tapaAccumPx += step;
           
             const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
@@ -327,13 +350,15 @@
           this.isRotating = false;
           this.draggingPart = null;
           this.prevDist = 0;
-          this.tapaIntent = null;
           this.tapaAccumPx = 0;
+          this.tapaAgainstPx = 0;
+          this.tapaIntent = null;
         }
       });
     </script>
   </body>
 </html>
+
 
 
 
