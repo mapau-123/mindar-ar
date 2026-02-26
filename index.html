@@ -254,7 +254,7 @@
 
             // Arrastrar hacia arriba debería abrir:
             // si te abre al revés, cambia a: (this.tapaStartAngleDeg + dy * ...)
-            const nextDeg = this.tapaStartAngleDeg - (dy * this.data.tapaDegPerPx);
+            const nextDeg = this.tapaStartAngleDeg + (dy * this.data.tapaDegPerPx);
 
             this._applyTapaAngleDeg(nextDeg);
             return;
@@ -302,3 +302,4 @@
     </script>
   </body>
 </html>
+
