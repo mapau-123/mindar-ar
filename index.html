@@ -275,30 +275,59 @@
             this.tapaLastY = e.clientY;
           
             const step = Math.hypot(dx, dy);
-            if (step < 0.01) return;
+            if (step < 0.5) return;
           
-            // “Dirección vertical” del segmento (solo para detectar si vas abriendo o cerrando)
-            // dy < 0 = moviste hacia arriba
-            const segmentSaysOpen = (dy < 0);
-            const segmentSaysClose = (dy > 0);
-          
-            // Si te mueves consistente CONTRA la intención, acumulamos para permitir flip
-            const goingAgainst =
-              (this.tapaIntent === "open"  && segmentSaysClose) ||
-              (this.tapaIntent === "close" && segmentSaysOpen);
-          
-            if (goingAgainst) this.tapaAgainstPx += step;
-            else this.tapaAgainstPx = Math.max(0, this.tapaAgainstPx - step * 0.5); // se “enfría” si vuelves a favor
-          
-            // Si te devolviste lo suficiente, cambiamos intención en caliente
-            if (this.tapaAgainstPx >= this.flipThresholdPx) {
-              this.tapaIntent = (this.tapaIntent === "open") ? "close" : "open";
-              this.tapaAgainstPx = 0;
-          
-              // reiniciar referencia para que no “salte”
-              this.tapaStartAngleDeg = this.tapaAngleDeg;
-              this.tapaAccumPx = 0;
+            // OPEN: se comporta como ya te gustó (avance por distancia, sin importar la curva)
+            if (this.tapaIntent === "open") {
+              this.tapaAccumPx += step;
+              const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
+              const nextDeg = this.tapaStartAngleDeg + deltaDeg;
+              this._applyTapaAngleDeg(nextDeg);
+              return;
             }
+          
+            // CLOSE (modo U inversa):
+            // 180 -> 90: gesto esperado = ARRIBA (dy < 0)
+            // 90  -> 0 : gesto esperado = ABAJO (dy > 0)
+          
+            const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2; // 90 si 0..180
+            const inTopHalf = this.tapaAngleDeg > mid;
+          
+            const expectsUp = inTopHalf;      // 180..90
+            const expectsDown = !inTopHalf;   // 90..0
+          
+            const goingUp = dy < 0;
+            const goingDown = dy > 0;
+          
+            // magnitud a acumular (permitimos diagonales pero el "sentido" lo manda dy)
+            const mag = step;
+          
+            // Si el usuario se mueve en el sentido esperado, avanzamos cierre
+            let advancePx = 0;
+            if (expectsUp && goingUp) advancePx = mag;
+            if (expectsDown && goingDown) advancePx = mag;
+          
+            // Si no va en el sentido esperado, no avanzamos (evita que se sienta "raro")
+            if (advancePx <= 0) return;
+          
+            // OJO: cuando cambias de mitad (cruzas 90°), reinicia base para que no pegue saltos
+            // Detectamos cambio de fase si el próximo ángulo cruzaría el mid.
+            this.tapaAccumPx += advancePx;
+          
+            const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
+            const candidate = this.tapaStartAngleDeg - deltaDeg;
+          
+            // Si vamos a cruzar el mid, clavamos exactamente al mid y reiniciamos acumulados
+            if (this.tapaStartAngleDeg > mid && candidate <= mid) {
+              this._applyTapaAngleDeg(mid);
+              this.tapaStartAngleDeg = mid;
+              this.tapaAccumPx = 0;
+              return;
+            }
+          
+            this._applyTapaAngleDeg(candidate);
+            return;
+          }
           
             // Avance acumulado (permite curvas naturales)
             this.tapaAccumPx += step;
@@ -358,6 +387,7 @@
     </script>
   </body>
 </html>
+
 
 
 
