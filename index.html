@@ -379,6 +379,28 @@
         target1.addEventListener("targetLost", closeYT);
       });
     </script>
+    <script>
+      const scene = document.querySelector("#scene");
+      scene.addEventListener("loaded", () => {
+        const target1 = document.querySelector("#target1");
+    
+        console.log("✅ scene loaded, target1:", target1);
+    
+        target1.addEventListener("targetFound", () => {
+          console.log("🎯 targetIndex 1 FOUND");
+          document.getElementById("ytOverlay").style.display = "flex";
+          document.getElementById("ytFrame").src =
+            "https://www.youtube-nocookie.com/embed/0xKeIFzrVuo?autoplay=1&playsinline=1&rel=0";
+        });
+    
+        target1.addEventListener("targetLost", () => {
+          console.log("❌ targetIndex 1 LOST");
+          document.getElementById("ytFrame").src = "";
+          document.getElementById("ytOverlay").style.display = "none";
+        });
+      });
+    </script>
   </body>
 </html>
+
 
