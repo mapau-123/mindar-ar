@@ -28,6 +28,7 @@
           gesture-controls="tapaName: tapa_v31; tapaAxis: x; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
         ></a-gltf-model>
       </a-entity>
+      <a-entity id="target1" mindar-image-target="targetIndex: 1"></a-entity>
     </a-scene>
 
     <script>
@@ -334,8 +335,68 @@
         }
       });
     </script>
+    <div id="ytOverlay" style="
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.65);
+      z-index: 9999;
+    ">
+      <div style="width: min(92vw, 900px); aspect-ratio: 16/9; background: #000; border-radius: 14px; overflow: hidden;">
+        <iframe
+          id="ytFrame"
+          width="100%" height="100%"
+          frameborder="0"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowfullscreen
+        ></iframe>
+      </div>
+    
+      <button id="ytClose" style="
+        position: fixed;
+        top: 16px; right: 16px;
+        font-size: 18px;
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 10px;
+        cursor: pointer;
+      ">Cerrar ✕</button>
+    </div>
+    <script>
+      window.addEventListener("DOMContentLoaded", () => {
+        const target1 = document.querySelector("#target1");
+    
+        const overlay = document.getElementById("ytOverlay");
+        const frame = document.getElementById("ytFrame");
+        const closeBtn = document.getElementById("ytClose");
+    
+        const VIDEO_ID = "0xKeIFzrVuo";
+        const YT_URL = `https://www.youtube-nocookie.com/embed/${VIDEO_ID}?autoplay=1&playsinline=1&rel=0`;
+    
+        const openYT = () => {
+          overlay.style.display = "flex";
+          frame.src = YT_URL;
+        };
+    
+        const closeYT = () => {
+          frame.src = "";
+          overlay.style.display = "none";
+        };
+    
+        closeBtn.addEventListener("click", closeYT);
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) closeYT();
+        });
+    
+        target1.addEventListener("targetFound", openYT);
+        target1.addEventListener("targetLost", closeYT);
+      });
+    </script>
   </body>
 </html>
+
 
 
 
