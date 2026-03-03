@@ -8,7 +8,6 @@
       html, body { margin: 0; overflow: hidden; }
       body { touch-action: none; }
 
-      /* overlay: cuando está oculto no estorba */
       #ytOverlay { pointer-events: none; }
       #ytOverlay.show { display: flex !important; pointer-events: auto; }
     </style>
@@ -23,12 +22,11 @@
     >
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- ✅ Contenedor en "mundo" (FUERA de los targets) -->
+      <!-- ✅ Contenedor en mundo -->
       <a-entity id="world-root"></a-entity>
 
-      <!-- Target 0: solo dispara el "fix" del modelo -->
+      <!-- Target 0 -->
       <a-entity id="target0" mindar-image-target="targetIndex: 0">
-        <!-- Modelo anclado al target (solo para tomar pose). Luego lo ocultamos -->
         <a-gltf-model
           id="modelo"
           src="./modcarro.glb"
@@ -39,14 +37,13 @@
         ></a-gltf-model>
       </a-entity>
 
-      <!-- Target 1: dispara overlay de YouTube -->
+      <!-- Target 1 -->
       <a-entity id="target1" mindar-image-target="targetIndex: 1"></a-entity>
     </a-scene>
 
-    <!-- Overlay YouTube -->
+    <!-- Overlay YouTube (igual) -->
     <div id="ytOverlay" style="
-      position: fixed;
-      inset: 0;
+      position: fixed; inset: 0;
       display: none;
       align-items: center;
       justify-content: center;
@@ -64,8 +61,7 @@
       </div>
 
       <button id="ytClose" style="
-        position: fixed;
-        top: 16px; right: 16px;
+        position: fixed; top: 16px; right: 16px;
         font-size: 18px;
         padding: 10px 14px;
         border: 0;
@@ -75,7 +71,7 @@
     </div>
 
     <!-- =========================
-         1) Tu componente de gestos (igual que el tuyo)
+         1) Tu componente gesture-controls (sin cambios)
          ========================= -->
     <script>
       AFRAME.registerComponent("gesture-controls", {
@@ -126,8 +122,6 @@
 
           this.el.addEventListener("model-loaded", () => {
             this.modelRoot = this.el.object3D;
-
-            // ejes del modelo completo
             this.modelRoot.add(new THREE.AxesHelper(0.6));
 
             this.tapaObj = this.modelRoot.getObjectByName(this.data.tapaName);
@@ -138,7 +132,7 @@
               console.warn("⚠️ No encontré la tapa con nombre:", this.data.tapaName);
             }
 
-            console.log("✅ model-loaded OK");
+            console.log("✅ model-loaded OK (modelo original)");
           });
 
           const waitForCanvas = () => {
@@ -198,7 +192,7 @@
           if (!this.tapaObj) return;
           this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
 
-          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg); // invertido
+          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg);
           const axis = (this.data.tapaAxis || "x").toLowerCase();
 
           if (axis === "x") this.tapaObj.rotation.x = rad;
@@ -349,66 +343,88 @@
     </script>
 
     <!-- =========================
-         2) FIX: “Despegar” el modelo del target 0
+         2) FIX robusto: detacha SOLO cuando el modelo original esté listo
          ========================= -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
-        const scene = document.querySelector("#scene");
         const target0 = document.querySelector("#target0");
         const worldRoot = document.querySelector("#world-root");
         const originalModel = document.querySelector("#modelo");
 
+        let originalReady = false;
+        let pendingFix = false;
         let fixedOnce = false;
 
-        // cuando el target 0 aparece, fijamos el modelo
-        target0.addEventListener("targetFound", () => {
+        // marca "ready" cuando el modelo original ya tiene mesh
+        originalModel.addEventListener("model-loaded", () => {
+          originalReady = true;
+          console.log("✅ originalModel READY");
+
+          if (pendingFix && !fixedOnce) {
+            pendingFix = false;
+            doFix();
+          }
+        });
+
+        const doFix = () => {
           if (fixedOnce) return;
+          if (!originalReady) { pendingFix = true; return; }
+
           fixedOnce = true;
+          console.log("📌 FIX ejecutándose...");
 
-          console.log("🎯 target0 FOUND -> fijando modelo en mundo...");
-
-          // 1) tomar pose mundial del modelo original (ya en el target)
+          // Pose mundial del MODELO (no del target)
           const worldPos = new THREE.Vector3();
           const worldQuat = new THREE.Quaternion();
 
+          originalModel.object3D.updateMatrixWorld(true);
           originalModel.object3D.getWorldPosition(worldPos);
           originalModel.object3D.getWorldQuaternion(worldQuat);
 
-          // 2) crear copia del modelo en world-root
+          // crear el fixed
           const fixedModel = document.createElement("a-gltf-model");
           fixedModel.setAttribute("id", "modelo-fixed");
-          fixedModel.setAttribute("src", "./modcarro.glb");
+          fixedModel.setAttribute("src", originalModel.getAttribute("src"));
           fixedModel.setAttribute("scale", originalModel.getAttribute("scale") || "5 5 5");
           fixedModel.setAttribute("gesture-controls", originalModel.getAttribute("gesture-controls") || "");
 
           worldRoot.appendChild(fixedModel);
 
           fixedModel.addEventListener("model-loaded", () => {
-            // 3) aplicar pose (mundo -> local de worldRoot)
+            console.log("✅ fixedModel loaded");
+
+            // mundo -> local de worldRoot
             const p = worldPos.clone();
+            worldRoot.object3D.updateMatrixWorld(true);
             worldRoot.object3D.worldToLocal(p);
 
             fixedModel.object3D.position.copy(p);
-
-            // worldRoot no tiene rotación normalmente; así que copiamos quaternion directo
             fixedModel.object3D.quaternion.copy(worldQuat);
-
             fixedModel.object3D.updateMatrixWorld(true);
 
-            // 4) ocultar el modelo original pegado al target
+            // recién aquí ocultamos el original
             originalModel.setAttribute("visible", "false");
 
-            console.log("✅ modelo fijo creado (modelo-fixed).");
+            console.log("✅ Modelo fijo listo. Original oculto.");
           });
-        });
 
-        // (opcional) si quieres que al encontrar el target otra vez “re-fije”, se puede cambiar fixedOnce=false,
-        // pero por ahora lo dejamos UNA vez.
+          fixedModel.addEventListener("model-error", (e) => {
+            console.error("❌ fixedModel error:", e?.detail || e);
+            // si falló, NO ocultes el original
+            originalModel.setAttribute("visible", "true");
+            fixedOnce = false;
+          });
+        };
+
+        target0.addEventListener("targetFound", () => {
+          console.log("🎯 target0 FOUND");
+          doFix();
+        });
       });
     </script>
 
     <!-- =========================
-         3) YouTube overlay (limpio, sin duplicados)
+         3) YouTube overlay (sin duplicados)
          ========================= -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
@@ -437,15 +453,8 @@
           if (e.target === overlay) closeYT();
         });
 
-        target1.addEventListener("targetFound", () => {
-          console.log("🎯 target1 FOUND -> abriendo YouTube");
-          openYT();
-        });
-
-        target1.addEventListener("targetLost", () => {
-          console.log("❌ target1 LOST -> cerrando YouTube");
-          closeYT();
-        });
+        target1.addEventListener("targetFound", openYT);
+        target1.addEventListener("targetLost", closeYT);
       });
     </script>
   </body>
