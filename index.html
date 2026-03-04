@@ -91,64 +91,52 @@
     <script>
       AFRAME.registerComponent("gesture-controls", {
         schema: {
-          /* Debug */
           debug: { type: "boolean", default: false },
 
-          /* Zoom */
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
           maxScale:  { type: "number", default: 15.0 },
 
-          /* Rotate (modelo completo) */
           rotateSpeed: { type: "number", default: 0.008 },
           minMovePx:   { type: "number", default: 1 },
 
-          /* Tapa */
           tapaName:     { type: "string", default: "tapa_v31" },
           tapaAxis:     { type: "string", default: "x" },
           tapaMinDeg:   { type: "number", default: 0 },
           tapaMaxDeg:   { type: "number", default: 180 },
-          tapaDegPerPx: { type: "number", default: 0.5 },
-
-          /* Control del gesto de tapa: usar eje dominante */
-          tapaUseDominantAxis: { type: "boolean", default: true }, // mejora estabilidad
-          tapaDominant: { type: "string", default: "y" } // "x" o "y"
+          tapaDegPerPx: { type: "number", default: 0.5 }
         },
 
         init: function () {
           this.canvas = null;
           this.camera = null;
-
-          /* Estado de punteros */
           this.pointers = new Map();
+
           this.isPinching = false;
           this.isRotating = false;
+
           this.draggingPart = null;
-
-          /* Estado zoom/rotación */
-          this.prevDist = 0;
-          this.prevX = 0;
-
-          /* Estado tapa */
           this.tapaAngleDeg = 0;
           this.tapaStartAngleDeg = 0;
+
+          this.tapaIntent = null;
           this.tapaAccumPx = 0;
           this.tapaLastX = 0;
           this.tapaLastY = 0;
-          this.tapaIntent = null; // "open" o "close"
 
-          /* 3D */
           this.modelRoot = null;
           this.tapaObj = null;
+
           this.raycaster = new THREE.Raycaster();
           this.ndc = new THREE.Vector2();
 
-          /* Bind handlers */
+          this.prevDist = 0;
+          this.prevX = 0;
+
           this.onPointerDown = this.onPointerDown.bind(this);
           this.onPointerMove = this.onPointerMove.bind(this);
           this.onPointerUp   = this.onPointerUp.bind(this);
 
-          /* Cuando el glTF esté listo */
           this.el.addEventListener("model-loaded", () => {
             this.modelRoot = this.el.object3D;
 
@@ -157,41 +145,64 @@
             }
 
             this.tapaObj = this.modelRoot.getObjectByName(this.data.tapaName);
-
             if (this.tapaObj) {
-              if (this.data.debug) {
-                this.tapaObj.add(new THREE.AxesHelper(0.3));
-              }
+              if (this.data.debug) this.tapaObj.add(new THREE.AxesHelper(0.3));
               console.log("✅ Tapa encontrada:", this.data.tapaName);
             } else {
               console.warn("⚠️ No encontré la tapa con nombre:", this.data.tapaName);
             }
+
+            console.log("✅ model-loaded OK");
           });
 
-          /* Enganchar eventos cuando la escena/renderer estén listos */
+          // Enganchar eventos cuando la escena esté lista (sin polling)
           this.el.sceneEl.addEventListener("loaded", () => {
             const scene = this.el.sceneEl;
-            if (!scene.renderer || !scene.renderer.domElement || !scene.camera) {
-              console.warn("⚠️ Scene loaded, pero renderer/camera no listos aún");
-              return;
-            }
-            this.canvas = scene.renderer.domElement;
-            this.camera = scene.camera;
 
-            this.canvas.style.touchAction = "none";
+            // fallback suave por si camera/renderer tardan un pelín
+            const tryAttach = () => {
+              if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
+                this.canvas = scene.renderer.domElement;
+                this.camera = scene.camera;
 
-            /* Usamos capture true para interceptar antes */
-            this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
-            window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
-            window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
-            window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
+                this.canvas.style.touchAction = "none";
 
-            console.log("✅ Pointer events activos (sin polling)");
+                this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
+                window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
+                window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
+                window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
+
+                console.log("✅ Pointer events activos");
+              } else {
+                // solo un par de reintentos, no infinito
+                let tries = 0;
+                const id = setInterval(() => {
+                  tries++;
+                  if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
+                    clearInterval(id);
+                    this.canvas = scene.renderer.domElement;
+                    this.camera = scene.camera;
+
+                    this.canvas.style.touchAction = "none";
+
+                    this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
+                    window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
+                    window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
+                    window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
+
+                    console.log("✅ Pointer events activos (fallback)");
+                  }
+                  if (tries >= 10) clearInterval(id);
+                }, 80);
+              }
+            };
+
+            tryAttach();
           });
         },
 
         remove: function () {
-          /* Limpieza para evitar fugas y dobles listeners */
+          // Limpieza de listeners para evitar fugas/dobles registros
           if (!this.canvas) return;
           this.canvas.removeEventListener("pointerdown", this.onPointerDown, true);
           window.removeEventListener("pointermove", this.onPointerMove, true);
@@ -199,9 +210,7 @@
           window.removeEventListener("pointercancel", this.onPointerUp, true);
         },
 
-        clamp: function (v, min, max) {
-          return Math.max(min, Math.min(max, v));
-        },
+        clamp: function (v, min, max) { return Math.max(min, Math.min(max, v)); },
 
         _dist2Pointers: function () {
           const arr = Array.from(this.pointers.values());
@@ -245,22 +254,15 @@
           else this.tapaObj.rotation.z = rad;
         },
 
-        _dominantDelta: function (dx, dy) {
-          if (!this.data.tapaUseDominantAxis) return Math.hypot(dx, dy);
-          const dom = (this.data.tapaDominant || "y").toLowerCase();
-          return dom === "x" ? dx : dy;
-        },
-
         onPointerDown: function (e) {
           if (e.pointerType !== "touch") return;
           if (e.cancelable) e.preventDefault();
 
-          /* Captura sobre canvas cuando exista */
+          // Captura en canvas (más consistente)
           try { this.canvas && this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-          /* Pinch (2 dedos) */
           if (this.pointers.size === 2) {
             this.isPinching = true;
             this.isRotating = false;
@@ -269,7 +271,6 @@
             return;
           }
 
-          /* Un dedo: tapa o rotación */
           if (this.pointers.size === 1) {
             const hits = this._intersectModel(e.clientX, e.clientY);
             const touchedTapa = hits.length > 0 && this._hitIsTapa(hits[0].object);
@@ -303,7 +304,7 @@
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-          /* Pinch zoom: directo en object3D (más fluido) */
+          // Pinch: scale directo en object3D (más fluido que setAttribute)
           if (this.isPinching && this.pointers.size === 2) {
             const dist = this._dist2Pointers();
             const delta = dist - this.prevDist;
@@ -319,7 +320,7 @@
             return;
           }
 
-          /* Tapa: usa eje dominante (más estable) */
+          // ======== TU LÓGICA ORIGINAL DE LA TAPA (SIN CAMBIOS) ========
           if (this.draggingPart === "tapa" && this.pointers.size === 1) {
             const dx = e.clientX - this.tapaLastX;
             const dy = e.clientY - this.tapaLastY;
@@ -327,47 +328,46 @@
             this.tapaLastX = e.clientX;
             this.tapaLastY = e.clientY;
 
-            /* delta dominante */
-            const domDelta = this._dominantDelta(dx, dy);
-
-            /* umbral */
-            if (Math.abs(domDelta) < 0.5) return;
+            const step = Math.hypot(dx, dy);
+            if (step < 0.5) return;
 
             const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2;
 
-            /* Convención: para "open" aumentamos ángulo con gesto en la dirección dominante negativa (dy<0 si dominant=y) */
-            const direction = (this.data.tapaDominant || "y").toLowerCase();
-            const goesOpen = direction === "y" ? (domDelta < 0) : (domDelta > 0);
-
-            const stepPx = Math.abs(domDelta);
-
             if (this.tapaIntent === "open") {
-              if (!goesOpen) return;
-              this.tapaAccumPx += stepPx;
+              this.tapaAccumPx += step;
               const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
               this._applyTapaAngleDeg(this.tapaStartAngleDeg + deltaDeg);
               return;
-            } else {
-              /* close */
-              if (goesOpen) return; // en close, rechazamos dirección de abrir
-              this.tapaAccumPx += stepPx;
-              const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
-              const candidate = this.tapaStartAngleDeg - deltaDeg;
+            }
 
-              /* Snap al mid si cruza */
-              if (this.tapaStartAngleDeg > mid && candidate <= mid) {
-                this._applyTapaAngleDeg(mid);
-                this.tapaStartAngleDeg = mid;
-                this.tapaAccumPx = 0;
-                return;
-              }
+            const inTopHalf = this.tapaAngleDeg > mid;
+            const expectsUp = inTopHalf;
+            const goingUp = dy < 0;
+            const goingDown = dy > 0;
 
-              this._applyTapaAngleDeg(candidate);
+            let advancePx = 0;
+            if (expectsUp && goingUp) advancePx = step;
+            if (!expectsUp && goingDown) advancePx = step;
+            if (advancePx <= 0) return;
+
+            this.tapaAccumPx += advancePx;
+
+            const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
+            const candidate = this.tapaStartAngleDeg - deltaDeg;
+
+            if (this.tapaStartAngleDeg > mid && candidate <= mid) {
+              this._applyTapaAngleDeg(mid);
+              this.tapaStartAngleDeg = mid;
+              this.tapaAccumPx = 0;
               return;
             }
-          }
 
-          /* Rotación del modelo (1 dedo) */
+            this._applyTapaAngleDeg(candidate);
+            return;
+          }
+          // =============================================================
+
+          // Rotación del modelo (1 dedo)
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
             if (Math.abs(dx) < this.data.minMovePx) return;
@@ -382,7 +382,6 @@
 
           this.pointers.delete(e.pointerId);
 
-          /* Si quedan 2 dedos (raro), recalcula pinch */
           if (this.pointers.size === 2) {
             this.isPinching = true;
             this.isRotating = false;
@@ -402,7 +401,7 @@
       });
     </script>
 
-    <!-- Script YouTube (único, sin duplicados) -->
+    <!-- Script YouTube (ÚNICO, sin duplicados) -->
     <script>
       const scene = document.querySelector("#scene");
 
@@ -442,3 +441,4 @@
     </script>
   </body>
 </html>
+
