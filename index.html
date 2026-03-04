@@ -4,85 +4,181 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
     <style>
       html, body { margin: 0; overflow: hidden; }
       body { touch-action: none; }
+
+      /* Overlay YouTube: una sola fuente de verdad = clase .show */
+      #ytOverlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.65);
+        z-index: 9999;
+        pointer-events: none;
+      }
+      #ytOverlay.show { display: flex; pointer-events: auto; }
+
+      #ytCard {
+        width: min(92vw, 900px);
+        aspect-ratio: 16/9;
+        background: #000;
+        border-radius: 14px;
+        overflow: hidden;
+      }
+
+      #ytClose {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        font-size: 18px;
+        padding: 10px 14px;
+        border: 0;
+        border-radius: 10px;
+        cursor: pointer;
+      }
     </style>
   </head>
 
   <body>
     <a-scene
-      mindar-image="imageTargetSrc: ./targets2.mind;"
+      id="scene"
+      mindar-image="imageTargetSrc: ./targets0.mind;"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
+      renderer="precision: mediump; antialias: false; alpha: true; logarithmicDepthBuffer: false;"
+      shadow="type: none"
     >
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-      
-      <a-entity mindar-image-target="targetIndex: 0">
+
+      <!-- Target 0: modelo (persistente tras el primer found) -->
+      <a-entity id="target0" mindar-image-target="targetIndex: 0" persist-on-lost>
         <a-gltf-model
           id="modelo"
           src="./modcarro.glb"
           position="0 0 0"
           rotation="0 0 0"
           scale="5 5 5"
-          gesture-controls="tapaName: tapa_v31; tapaAxis: x; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
+          gesture-controls="debug: false; tapaName: tapa_v31; tapaAxis: x; tapaMinDeg: 0; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
         ></a-gltf-model>
       </a-entity>
+
+      <!-- Target 1: solo para disparar el video -->
+      <a-entity id="target1" mindar-image-target="targetIndex: 1"></a-entity>
     </a-scene>
 
+    <!-- Overlay YouTube -->
+    <div id="ytOverlay" aria-hidden="true">
+      <div id="ytCard">
+        <iframe
+          id="ytFrame"
+          width="100%"
+          height="100%"
+          frameborder="0"
+          allow="autoplay; encrypted-media; picture-in-picture"
+          allowfullscreen
+        ></iframe>
+      </div>
+      <button id="ytClose" type="button">Cerrar ✕</button>
+    </div>
+
+    <!-- 1) Componente: mantener visible después del primer targetFound -->
+    <script>
+      AFRAME.registerComponent("persist-on-lost", {
+        schema: {
+          lockOnFirstFound: { type: "boolean", default: true }
+        },
+
+        init: function () {
+          this.locked = false;
+
+          this.onFound = () => {
+            if (this.data.lockOnFirstFound) this.locked = true;
+
+            // asegurar visible inmediatamente
+            this.el.object3D.visible = true;
+            this.el.setAttribute("visible", true);
+
+            console.log("✅ target FOUND -> locked:", this.locked);
+          };
+
+          this.onLost = () => {
+            // si ya se detectó una vez, NO permitir que desaparezca
+            if (this.locked) {
+              this.el.object3D.visible = true;
+              this.el.setAttribute("visible", true);
+              console.log("ℹ️ target LOST -> mantengo visible (locked)");
+            }
+          };
+
+          this.el.addEventListener("targetFound", this.onFound);
+          this.el.addEventListener("targetLost", this.onLost);
+        },
+
+        tick: function () {
+          // MindAR puede forzar visible=false internamente; en locked lo “ganamos” cada frame
+          if (this.locked && !this.el.object3D.visible) {
+            this.el.object3D.visible = true;
+            this.el.setAttribute("visible", true);
+          }
+        },
+
+        remove: function () {
+          this.el.removeEventListener("targetFound", this.onFound);
+          this.el.removeEventListener("targetLost", this.onLost);
+        }
+      });
+    </script>
+
+    <!-- 2) Tu componente de gestos (zoom + rotación X/Y + tu lógica de tapa intacta) -->
     <script>
       AFRAME.registerComponent("gesture-controls", {
         schema: {
-          // Pinch zoom
+          debug: { type: "boolean", default: false },
+
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
           maxScale:  { type: "number", default: 15.0 },
 
-          // Rotación global (1 dedo)
-          rotateSpeed: { type: "number", default: 0.008 }, // rad/pixel
+          rotateSpeed: { type: "number", default: 0.008 },
           minMovePx:   { type: "number", default: 1 },
 
-          // Tapa interactiva
           tapaName:     { type: "string", default: "tapa_v31" },
-          tapaAxis:     { type: "string", default: "x" },   // "x" | "y" | "z"
+          tapaAxis:     { type: "string", default: "x" },
           tapaMinDeg:   { type: "number", default: 0 },
           tapaMaxDeg:   { type: "number", default: 180 },
-          tapaDegPerPx: { type: "number", default: 0.5 }    // grados por pixel
+          tapaDegPerPx: { type: "number", default: 0.5 }
         },
 
         init: function () {
           this.canvas = null;
           this.camera = null;
-
-          // pointers activos: id -> {x,y}
           this.pointers = new Map();
 
-          // estados
           this.isPinching = false;
           this.isRotating = false;
 
-          // interacción tapa
-          this.draggingPart = null; // "tapa" | null
+          this.draggingPart = null;
           this.tapaAngleDeg = 0;
           this.tapaStartAngleDeg = 0;
 
-          // drag natural
-          this.tapaIntent = null; // "open" | "close"
+          this.tapaIntent = null;
           this.tapaAccumPx = 0;
           this.tapaLastX = 0;
           this.tapaLastY = 0;
 
-          // refs THREE
           this.modelRoot = null;
           this.tapaObj = null;
 
-          // raycast
           this.raycaster = new THREE.Raycaster();
           this.ndc = new THREE.Vector2();
 
-          // pinch/rotate vars
           this.prevDist = 0;
           this.prevX = 0;
+          this.prevY = 0;
 
           this.onPointerDown = this.onPointerDown.bind(this);
           this.onPointerMove = this.onPointerMove.bind(this);
@@ -90,47 +186,60 @@
 
           this.el.addEventListener("model-loaded", () => {
             this.modelRoot = this.el.object3D;
-            this.modelRoot.add(new THREE.AxesHelper(0.6));
+
+            if (this.data.debug) {
+              this.modelRoot.add(new THREE.AxesHelper(0.6));
+            }
 
             this.tapaObj = this.modelRoot.getObjectByName(this.data.tapaName);
             if (this.tapaObj) {
-              this.tapaObj.add(new THREE.AxesHelper(0.3));
+              if (this.data.debug) this.tapaObj.add(new THREE.AxesHelper(0.3));
               console.log("✅ Tapa encontrada:", this.data.tapaName);
             } else {
               console.warn("⚠️ No encontré la tapa con nombre:", this.data.tapaName);
             }
-
-            console.log("✅ model-loaded OK");
           });
 
-          this.el.addEventListener("model-error", (e) => {
-            console.error("❌ Error cargando GLB:", e?.detail || e);
-          });
-
-          const waitForCanvas = () => {
+          this.el.sceneEl.addEventListener("loaded", () => {
             const scene = this.el.sceneEl;
-            if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
-              this.canvas = scene.renderer.domElement;
-              this.camera = scene.camera;
 
-              this.canvas.style.touchAction = "none";
+            let tries = 0;
+            const attach = () => {
+              if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
+                this.canvas = scene.renderer.domElement;
+                this.camera = scene.camera;
 
-              this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
-              window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
-              window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
-              window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
+                this.canvas.style.touchAction = "none";
 
-              console.log("✅ Pointer events activos");
-            } else {
-              setTimeout(waitForCanvas, 100);
-            }
-          };
-          waitForCanvas();
+                this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
+                window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
+                window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
+                window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
+
+                console.log("✅ Pointer events activos");
+                return true;
+              }
+              return false;
+            };
+
+            if (attach()) return;
+
+            const id = setInterval(() => {
+              tries++;
+              if (attach() || tries >= 10) clearInterval(id);
+            }, 80);
+          });
         },
 
-        clamp: function (v, min, max) {
-          return Math.max(min, Math.min(max, v));
+        remove: function () {
+          if (!this.canvas) return;
+          this.canvas.removeEventListener("pointerdown", this.onPointerDown, true);
+          window.removeEventListener("pointermove", this.onPointerMove, true);
+          window.removeEventListener("pointerup", this.onPointerUp, true);
+          window.removeEventListener("pointercancel", this.onPointerUp, true);
         },
+
+        clamp: function (v, min, max) { return Math.max(min, Math.min(max, v)); },
 
         _dist2Pointers: function () {
           const arr = Array.from(this.pointers.values());
@@ -149,7 +258,6 @@
 
           this.modelRoot.updateMatrixWorld(true);
           this.raycaster.setFromCamera(this.ndc, this.camera);
-
           return this.raycaster.intersectObject(this.modelRoot, true);
         },
 
@@ -167,8 +275,7 @@
           if (!this.tapaObj) return;
           this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
 
-          // invertido para que abra "bien"
-          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg);
+          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg); // invertido
           const axis = (this.data.tapaAxis || "x").toLowerCase();
 
           if (axis === "x") this.tapaObj.rotation.x = rad;
@@ -180,21 +287,18 @@
           if (e.pointerType !== "touch") return;
           if (e.cancelable) e.preventDefault();
 
-          try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+          try { this.canvas && this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-          // 2 dedos -> pinch siempre
           if (this.pointers.size === 2) {
             this.isPinching = true;
             this.isRotating = false;
             this.draggingPart = null;
-
             this.prevDist = this._dist2Pointers();
             return;
           }
 
-          // 1 dedo
           if (this.pointers.size === 1) {
             const hits = this._intersectModel(e.clientX, e.clientY);
             const touchedTapa = hits.length > 0 && this._hitIsTapa(hits[0].object);
@@ -204,11 +308,9 @@
               this.isRotating = false;
               this.isPinching = false;
 
-              // intención por defecto según ángulo actual
-              const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2; // 90
+              const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2;
               this.tapaIntent = (this.tapaAngleDeg >= mid) ? "close" : "open";
 
-              // reset gesture
               this.tapaStartAngleDeg = this.tapaAngleDeg;
               this.tapaAccumPx = 0;
               this.tapaLastX = e.clientX;
@@ -216,11 +318,11 @@
               return;
             }
 
-            // rotación global
             this.draggingPart = null;
             this.isRotating = true;
             this.isPinching = false;
             this.prevX = e.clientX;
+            this.prevY = e.clientY;
           }
         },
 
@@ -231,7 +333,6 @@
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-          // pinch
           if (this.isPinching && this.pointers.size === 2) {
             const dist = this._dist2Pointers();
             const delta = dist - this.prevDist;
@@ -239,16 +340,15 @@
 
             const factor = 1 + (delta * this.data.zoomSpeed);
 
-            const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
-            const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
-            const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
-            const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
-
-            this.el.setAttribute("scale", { x: nx, y: ny, z: nz });
+            const obj = this.el.object3D;
+            const nx = this.clamp(obj.scale.x * factor, this.data.minScale, this.data.maxScale);
+            const ny = this.clamp(obj.scale.y * factor, this.data.minScale, this.data.maxScale);
+            const nz = this.clamp(obj.scale.z * factor, this.data.minScale, this.data.maxScale);
+            obj.scale.set(nx, ny, nz);
             return;
           }
 
-          // tapa (1 dedo)
+          // ===== TU LÓGICA ORIGINAL DE TAPA (SIN CAMBIOS) =====
           if (this.draggingPart === "tapa" && this.pointers.size === 1) {
             const dx = e.clientX - this.tapaLastX;
             const dy = e.clientY - this.tapaLastY;
@@ -259,9 +359,8 @@
             const step = Math.hypot(dx, dy);
             if (step < 0.5) return;
 
-            const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2; // 90
+            const mid = (this.data.tapaMinDeg + this.data.tapaMaxDeg) / 2;
 
-            // OPEN: avance por distancia (curvas ok)
             if (this.tapaIntent === "open") {
               this.tapaAccumPx += step;
               const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
@@ -269,9 +368,6 @@
               return;
             }
 
-            // CLOSE: U inversa
-            // 180->90: dedo ARRIBA (dy<0)
-            // 90->0:   dedo ABAJO (dy>0)
             const inTopHalf = this.tapaAngleDeg > mid;
             const expectsUp = inTopHalf;
             const goingUp = dy < 0;
@@ -280,7 +376,6 @@
             let advancePx = 0;
             if (expectsUp && goingUp) advancePx = step;
             if (!expectsUp && goingDown) advancePx = step;
-
             if (advancePx <= 0) return;
 
             this.tapaAccumPx += advancePx;
@@ -288,7 +383,6 @@
             const deltaDeg = this.tapaAccumPx * this.data.tapaDegPerPx;
             const candidate = this.tapaStartAngleDeg - deltaDeg;
 
-            // si cruzamos 90, clavamos a 90 y reiniciamos fase
             if (this.tapaStartAngleDeg > mid && candidate <= mid) {
               this._applyTapaAngleDeg(mid);
               this.tapaStartAngleDeg = mid;
@@ -299,13 +393,22 @@
             this._applyTapaAngleDeg(candidate);
             return;
           }
+          // =====================================================
 
-          // rotación global (1 dedo)
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
-            if (Math.abs(dx) < this.data.minMovePx) return;
+            const dy = e.clientY - this.prevY;
+            if (Math.hypot(dx, dy) < this.data.minMovePx) return;
+
             this.prevX = e.clientX;
-            this.el.object3D.rotation.y += dx * this.data.rotateSpeed;
+            this.prevY = e.clientY;
+
+            const obj = this.el.object3D;
+            obj.rotation.y += dx * this.data.rotateSpeed;
+            obj.rotation.x += -dy * this.data.rotateSpeed;
+
+            const limit = THREE.MathUtils.degToRad(80);
+            obj.rotation.x = this.clamp(obj.rotation.x, -limit, limit);
           }
         },
 
@@ -323,7 +426,6 @@
             return;
           }
 
-          // al soltar, reseteamos modos (evita que se quede pegado)
           this.isPinching = false;
           this.isRotating = false;
           this.draggingPart = null;
@@ -334,5 +436,45 @@
         }
       });
     </script>
+
+    <!-- 3) Script YouTube (target 1) - ÚNICO -->
+    <script>
+      const scene = document.querySelector("#scene");
+
+      scene.addEventListener("loaded", () => {
+        const target1 = document.querySelector("#target1");
+        const overlay = document.getElementById("ytOverlay");
+        const frame = document.getElementById("ytFrame");
+        const closeBtn = document.getElementById("ytClose");
+
+        const VIDEO_ID = "0xKeIFzrVuo";
+        const YT_URL = `https://www.youtube-nocookie.com/embed/${VIDEO_ID}?autoplay=1&playsinline=1&rel=0`;
+
+        const openYT = () => {
+          overlay.classList.add("show");
+          frame.src = YT_URL;
+          overlay.setAttribute("aria-hidden", "false");
+          console.log("🎯 targetIndex 1 FOUND");
+        };
+
+        const closeYT = () => {
+          frame.src = "";
+          overlay.classList.remove("show");
+          overlay.setAttribute("aria-hidden", "true");
+          console.log("❌ targetIndex 1 LOST");
+        };
+
+        closeBtn.addEventListener("click", closeYT);
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) closeYT();
+        });
+
+        target1.addEventListener("targetFound", openYT);
+        target1.addEventListener("targetLost", closeYT);
+
+        console.log("✅ scene loaded, target1:", target1);
+      });
+    </script>
   </body>
 </html>
+
