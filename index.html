@@ -8,6 +8,7 @@
       html, body { margin: 0; overflow: hidden; }
       body { touch-action: none; }
 
+      /* overlay: cuando está oculto no estorba */
       #ytOverlay { pointer-events: none; }
       #ytOverlay.show { display: flex !important; pointer-events: auto; }
     </style>
@@ -22,11 +23,8 @@
     >
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- ✅ Contenedor en mundo -->
-      <a-entity id="world-root"></a-entity>
-
-      <!-- Target 0 -->
-      <a-entity id="target0" mindar-image-target="targetIndex: 0">
+      <!-- Target 0: modelo -->
+      <a-entity mindar-image-target="targetIndex: 0">
         <a-gltf-model
           id="modelo"
           src="./modcarro.glb"
@@ -37,13 +35,14 @@
         ></a-gltf-model>
       </a-entity>
 
-      <!-- Target 1 -->
+      <!-- Target 1: solo para disparar el video -->
       <a-entity id="target1" mindar-image-target="targetIndex: 1"></a-entity>
     </a-scene>
 
-    <!-- Overlay YouTube (igual) -->
+    <!-- Overlay YouTube -->
     <div id="ytOverlay" style="
-      position: fixed; inset: 0;
+      position: fixed;
+      inset: 0;
       display: none;
       align-items: center;
       justify-content: center;
@@ -61,7 +60,8 @@
       </div>
 
       <button id="ytClose" style="
-        position: fixed; top: 16px; right: 16px;
+        position: fixed;
+        top: 16px; right: 16px;
         font-size: 18px;
         padding: 10px 14px;
         border: 0;
@@ -70,9 +70,7 @@
       ">Cerrar ✕</button>
     </div>
 
-    <!-- =========================
-         1) Tu componente gesture-controls (sin cambios)
-         ========================= -->
+    <!-- Tu componente -->
     <script>
       AFRAME.registerComponent("gesture-controls", {
         schema: {
@@ -132,7 +130,7 @@
               console.warn("⚠️ No encontré la tapa con nombre:", this.data.tapaName);
             }
 
-            console.log("✅ model-loaded OK (modelo original)");
+            console.log("✅ model-loaded OK");
           });
 
           const waitForCanvas = () => {
@@ -192,7 +190,7 @@
           if (!this.tapaObj) return;
           this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
 
-          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg);
+          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg); // invertido
           const axis = (this.data.tapaAxis || "x").toLowerCase();
 
           if (axis === "x") this.tapaObj.rotation.x = rad;
@@ -342,92 +340,11 @@
       });
     </script>
 
-    <!-- =========================
-         2) FIX robusto: detacha SOLO cuando el modelo original esté listo
-         ========================= -->
+    <!-- Script YouTube: mejor engancharlo cuando la escena esté lista -->
     <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const target0 = document.querySelector("#target0");
-        const worldRoot = document.querySelector("#world-root");
-        const originalModel = document.querySelector("#modelo");
+      const scene = document.querySelector("#scene");
 
-        let originalReady = false;
-        let pendingFix = false;
-        let fixedOnce = false;
-
-        // marca "ready" cuando el modelo original ya tiene mesh
-        originalModel.addEventListener("model-loaded", () => {
-          originalReady = true;
-          console.log("✅ originalModel READY");
-
-          if (pendingFix && !fixedOnce) {
-            pendingFix = false;
-            doFix();
-          }
-        });
-
-        const doFix = () => {
-          if (fixedOnce) return;
-          if (!originalReady) { pendingFix = true; return; }
-
-          fixedOnce = true;
-          console.log("📌 FIX ejecutándose...");
-
-          // Pose mundial del MODELO (no del target)
-          const worldPos = new THREE.Vector3();
-          const worldQuat = new THREE.Quaternion();
-
-          originalModel.object3D.updateMatrixWorld(true);
-          originalModel.object3D.getWorldPosition(worldPos);
-          originalModel.object3D.getWorldQuaternion(worldQuat);
-
-          // crear el fixed
-          const fixedModel = document.createElement("a-gltf-model");
-          fixedModel.setAttribute("id", "modelo-fixed");
-          fixedModel.setAttribute("src", originalModel.getAttribute("src"));
-          fixedModel.setAttribute("scale", originalModel.getAttribute("scale") || "5 5 5");
-          fixedModel.setAttribute("gesture-controls", originalModel.getAttribute("gesture-controls") || "");
-
-          worldRoot.appendChild(fixedModel);
-
-          fixedModel.addEventListener("model-loaded", () => {
-            console.log("✅ fixedModel loaded");
-
-            // mundo -> local de worldRoot
-            const p = worldPos.clone();
-            worldRoot.object3D.updateMatrixWorld(true);
-            worldRoot.object3D.worldToLocal(p);
-
-            fixedModel.object3D.position.copy(p);
-            fixedModel.object3D.quaternion.copy(worldQuat);
-            fixedModel.object3D.updateMatrixWorld(true);
-
-            // recién aquí ocultamos el original
-            originalModel.setAttribute("visible", "false");
-
-            console.log("✅ Modelo fijo listo. Original oculto.");
-          });
-
-          fixedModel.addEventListener("model-error", (e) => {
-            console.error("❌ fixedModel error:", e?.detail || e);
-            // si falló, NO ocultes el original
-            originalModel.setAttribute("visible", "true");
-            fixedOnce = false;
-          });
-        };
-
-        target0.addEventListener("targetFound", () => {
-          console.log("🎯 target0 FOUND");
-          doFix();
-        });
-      });
-    </script>
-
-    <!-- =========================
-         3) YouTube overlay (sin duplicados)
-         ========================= -->
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
+      scene.addEventListener("loaded", () => {
         const target1 = document.querySelector("#target1");
         const overlay = document.getElementById("ytOverlay");
         const frame = document.getElementById("ytFrame");
@@ -437,7 +354,6 @@
         const YT_URL = `https://www.youtube-nocookie.com/embed/${VIDEO_ID}?autoplay=1&playsinline=1&rel=0`;
 
         const openYT = () => {
-          overlay.style.display = "flex";
           overlay.classList.add("show");
           frame.src = YT_URL;
         };
@@ -445,7 +361,7 @@
         const closeYT = () => {
           frame.src = "";
           overlay.classList.remove("show");
-          overlay.style.display = "none";
+          overlay.style.display = "none"; // por si acaso
         };
 
         closeBtn.addEventListener("click", closeYT);
@@ -453,10 +369,36 @@
           if (e.target === overlay) closeYT();
         });
 
-        target1.addEventListener("targetFound", openYT);
+        // mostrar/ocultar overlay correctamente
+        const showOverlay = () => {
+          overlay.style.display = "flex";
+          openYT();
+        };
+
+        target1.addEventListener("targetFound", showOverlay);
         target1.addEventListener("targetLost", closeYT);
+      });
+    </script>
+    <script>
+      const scene = document.querySelector("#scene");
+      scene.addEventListener("loaded", () => {
+        const target1 = document.querySelector("#target1");
+    
+        console.log("✅ scene loaded, target1:", target1);
+    
+        target1.addEventListener("targetFound", () => {
+          console.log("🎯 targetIndex 1 FOUND");
+          document.getElementById("ytOverlay").style.display = "flex";
+          document.getElementById("ytFrame").src =
+            "https://www.youtube-nocookie.com/embed/0xKeIFzrVuo?autoplay=1&playsinline=1&rel=0";
+        });
+    
+        target1.addEventListener("targetLost", () => {
+          console.log("❌ targetIndex 1 LOST");
+          document.getElementById("ytFrame").src = "";
+          document.getElementById("ytOverlay").style.display = "none";
+        });
       });
     </script>
   </body>
 </html>
-
