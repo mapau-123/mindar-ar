@@ -132,6 +132,7 @@
 
           this.prevDist = 0;
           this.prevX = 0;
+          this.prevY = 0;
 
           this.onPointerDown = this.onPointerDown.bind(this);
           this.onPointerMove = this.onPointerMove.bind(this);
@@ -294,6 +295,7 @@
             this.isRotating = true;
             this.isPinching = false;
             this.prevX = e.clientX;
+            this.prevY = e.clientY;
           }
         },
 
@@ -370,9 +372,25 @@
           // Rotación del modelo (1 dedo)
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
-            if (Math.abs(dx) < this.data.minMovePx) return;
+            const dy = e.clientY - this.prevY;
+          
+            // si el movimiento es mínimo, no hagas nada (evita temblores)
+            if (Math.hypot(dx, dy) < this.data.minMovePx) return;
+          
             this.prevX = e.clientX;
-            this.el.object3D.rotation.y += dx * this.data.rotateSpeed;
+            this.prevY = e.clientY;
+          
+            const obj = this.el.object3D;
+          
+            // Horizontal -> yaw (Y)
+            obj.rotation.y += dx * this.data.rotateSpeed;
+          
+            // Vertical -> pitch (X). Signo invertido para que "subir dedo" = mirar arriba
+            obj.rotation.x += -dy * this.data.rotateSpeed;
+          
+            // (Recomendado) clamp para no voltear el modelo
+            const limit = THREE.MathUtils.degToRad(80);
+            obj.rotation.x = this.clamp(obj.rotation.x, -limit, limit);
           }
         },
 
@@ -441,4 +459,5 @@
     </script>
   </body>
 </html>
+
 
