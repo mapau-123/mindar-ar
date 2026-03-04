@@ -91,48 +91,82 @@
         schema: {
           lockOnFirstFound: { type: "boolean", default: true }
         },
-
+    
         init: function () {
           this.locked = false;
-
+    
+          // Fuerza visible en todo el árbol (target + hijos + meshes)
+          this.forceVisibleTree = () => {
+            // A-Frame flag
+            this.el.setAttribute("visible", true);
+    
+            // Three.js flags (árbol completo)
+            const root = this.el.object3D;
+            if (!root) return;
+    
+            root.visible = true;
+    
+            root.traverse((o) => {
+              o.visible = true;
+            });
+          };
+    
           this.onFound = () => {
             if (this.data.lockOnFirstFound) this.locked = true;
-
-            // asegurar visible inmediatamente
-            this.el.object3D.visible = true;
-            this.el.setAttribute("visible", true);
-
+            this.forceVisibleTree();
             console.log("✅ target FOUND -> locked:", this.locked);
           };
-
+    
           this.onLost = () => {
-            // si ya se detectó una vez, NO permitir que desaparezca
-            if (this.locked) {
-              this.el.object3D.visible = true;
-              this.el.setAttribute("visible", true);
-              console.log("ℹ️ target LOST -> mantengo visible (locked)");
-            }
+            if (!this.locked) return;
+    
+            // Primero intentamos inmediatamente
+            this.forceVisibleTree();
+    
+            // Y luego otra vez en el próximo tick del event-loop
+            // (porque MindAR suele poner visible=false después del evento)
+            setTimeout(() => {
+              if (this.locked) this.forceVisibleTree();
+            }, 0);
+    
+            console.log("ℹ️ target LOST -> mantengo visible (locked)");
           };
-
+    
           this.el.addEventListener("targetFound", this.onFound);
           this.el.addEventListener("targetLost", this.onLost);
         },
-
+    
         tick: function () {
-          // MindAR puede forzar visible=false internamente; en locked lo “ganamos” cada frame
-          if (this.locked && !this.el.object3D.visible) {
-            this.el.object3D.visible = true;
-            this.el.setAttribute("visible", true);
+          // Mientras esté locked, le ganamos a MindAR cada frame si intenta ocultar algo.
+          if (!this.locked) return;
+    
+          const root = this.el.object3D;
+          if (!root) return;
+    
+          // Si algo se apagó, lo re-encendemos
+          if (!root.visible || this.el.getAttribute("visible") === false) {
+            this.forceVisibleTree();
+            return;
+          }
+    
+          // A veces el root queda visible, pero un hijo (mesh) no.
+          // Revisamos rápido: si detectamos un hijo invisible, forzamos todo.
+          let foundInvisibleChild = false;
+          root.traverse((o) => {
+            if (!o.visible) foundInvisibleChild = true;
+          });
+    
+          if (foundInvisibleChild) {
+            this.forceVisibleTree();
           }
         },
-
+    
         remove: function () {
           this.el.removeEventListener("targetFound", this.onFound);
           this.el.removeEventListener("targetLost", this.onLost);
         }
       });
     </script>
-
     <!-- 2) Tu componente de gestos (zoom + rotación X/Y + tu lógica de tapa intacta) -->
     <script>
       AFRAME.registerComponent("gesture-controls", {
@@ -477,4 +511,5 @@
     </script>
   </body>
 </html>
+
 
