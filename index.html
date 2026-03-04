@@ -387,13 +387,12 @@
     <!-- ✅ Script: fijar modelo al detectar target 0 (CORREGIDO) -->
     <script>
       const scene = document.querySelector("#scene");
-
+    
       scene.addEventListener("loaded", () => {
         const target0 = document.getElementById("target0");
         const anchor = document.getElementById("persistentAnchor");
         const modelEl = document.getElementById("modelo");
-
-        // 1) Asegura que anchor sea hermano de target0 dentro del "root" que MindAR use
+    
         function ensureAnchorSameParent() {
           const p = target0.parentElement;
           if (p && anchor.parentElement !== p) {
@@ -401,26 +400,28 @@
             console.log("✅ Anchor movido al mismo parent AR que target0");
           }
         }
-
-        // 2) Copia transform LOCAL (no world) desde target0 hacia anchor (mismo parent => funciona)
+    
         function copyLocalPose(sourceEl, anchorEl) {
           const src = sourceEl.object3D;
           const anc = anchorEl.object3D;
-
+    
           src.updateMatrix();
           src.updateMatrixWorld(true);
-
+    
+          // Copiamos solo posición y rotación
           anc.position.copy(src.position);
           anc.quaternion.copy(src.quaternion);
-          anc.scale.copy(src.scale);
-
+    
+          // NO copiar escala del target (MindAR puede ponerla muy pequeña)
+          anc.scale.set(1, 1, 1);
+    
           anc.updateMatrix();
           anc.updateMatrixWorld(true);
         }
-
+    
         let modelReady = false;
         let pendingLock = false;
-
+    
         modelEl.addEventListener("model-loaded", () => {
           modelReady = true;
           console.log("✅ glTF listo");
@@ -429,30 +430,30 @@
             lockModelNow();
           }
         });
-
+    
         function lockModelNow() {
           ensureAnchorSameParent();
           copyLocalPose(target0, anchor);
-
-          // Re-parent
+    
           if (modelEl.parentElement !== anchor) {
             anchor.appendChild(modelEl);
           }
-
-          // Asegura visible
-          modelEl.setAttribute("visible", true);
+    
+          // Asegura visibles
           anchor.setAttribute("visible", true);
-
-          // Reset local para que quede alineado al anchor
+          modelEl.setAttribute("visible", true);
+    
+          // Alinear modelo con el anchor (sin tocar scale)
           modelEl.object3D.position.set(0, 0, 0);
           modelEl.object3D.rotation.set(0, 0, 0);
           modelEl.object3D.updateMatrixWorld(true);
-
+    
           console.log("✅ Modelo fijado (persistente) y visible");
+          console.log("Anchor scale:", anchor.object3D.scale);
+          console.log("Model scale:", modelEl.object3D.scale);
         }
-
+    
         target0.addEventListener("targetFound", () => {
-          // Si el glTF aún no ha cargado, aplaza el lock
           if (!modelReady) {
             pendingLock = true;
             console.log("⏳ target0 found pero glTF no listo, lock pendiente...");
@@ -460,9 +461,8 @@
           }
           lockModelNow();
         });
-
+    
         target0.addEventListener("targetLost", () => {
-          // No hacemos nada: el modelo ya quedó en anchor
           console.log("ℹ️ target0 lost -> modelo permanece fijo");
         });
       });
@@ -504,3 +504,4 @@
     </script>
   </body>
 </html>
+
