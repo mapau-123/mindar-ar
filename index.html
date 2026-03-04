@@ -9,7 +9,6 @@
       html, body { margin: 0; overflow: hidden; }
       body { touch-action: none; }
 
-      /* Overlay YouTube: una sola fuente de verdad = clase .show */
       #ytOverlay {
         position: fixed;
         inset: 0;
@@ -20,10 +19,7 @@
         z-index: 9999;
         pointer-events: none;
       }
-      #ytOverlay.show {
-        display: flex;
-        pointer-events: auto;
-      }
+      #ytOverlay.show { display: flex; pointer-events: auto; }
 
       #ytCard {
         width: min(92vw, 900px);
@@ -57,10 +53,10 @@
     >
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- Anchor persistente: aquí “pegamos” el modelo cuando detecta target 0 -->
+      <!-- Anchor persistente (lo reubicamos a runtime al parent AR correcto) -->
       <a-entity id="persistentAnchor" visible="true"></a-entity>
 
-      <!-- Target 0: contenedor tracking (solo para detectar y tomar pose) -->
+      <!-- Target 0 -->
       <a-entity id="target0" mindar-image-target="targetIndex: 0">
         <a-gltf-model
           id="modelo"
@@ -72,7 +68,7 @@
         ></a-gltf-model>
       </a-entity>
 
-      <!-- Target 1: solo para disparar el video -->
+      <!-- Target 1 -->
       <a-entity id="target1" mindar-image-target="targetIndex: 1"></a-entity>
     </a-scene>
 
@@ -91,7 +87,7 @@
       <button id="ytClose" type="button">Cerrar ✕</button>
     </div>
 
-    <!-- Gesture controls (con rotación en X e Y + tu lógica de tapa intacta) -->
+    <!-- Tu componente (igual al que venías usando; aquí solo incluyo el bloque final con rotación X/Y y tapa intacta) -->
     <script>
       AFRAME.registerComponent("gesture-controls", {
         schema: {
@@ -152,16 +148,12 @@
             this.tapaObj = this.modelRoot.getObjectByName(this.data.tapaName);
             if (this.tapaObj) {
               if (this.data.debug) this.tapaObj.add(new THREE.AxesHelper(0.3));
-              console.log("✅ Tapa encontrada:", this.data.tapaName);
-            } else {
-              console.warn("⚠️ No encontré la tapa con nombre:", this.data.tapaName);
             }
           });
 
           this.el.sceneEl.addEventListener("loaded", () => {
             const scene = this.el.sceneEl;
 
-            // fallback suave por si camera/renderer tardan un poco
             let tries = 0;
             const attach = () => {
               if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
@@ -169,20 +161,16 @@
                 this.camera = scene.camera;
 
                 this.canvas.style.touchAction = "none";
-
                 this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
                 window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
                 window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
                 window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
-
-                console.log("✅ Pointer events activos");
                 return true;
               }
               return false;
             };
 
             if (attach()) return;
-
             const id = setInterval(() => {
               tries++;
               if (attach() || tries >= 10) clearInterval(id);
@@ -234,7 +222,7 @@
           if (!this.tapaObj) return;
           this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
 
-          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg); // invertido
+          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg);
           const axis = (this.data.tapaAxis || "x").toLowerCase();
 
           if (axis === "x") this.tapaObj.rotation.x = rad;
@@ -247,7 +235,6 @@
           if (e.cancelable) e.preventDefault();
 
           try { this.canvas && this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
-
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
           if (this.pointers.size === 2) {
@@ -292,23 +279,23 @@
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-          // Pinch: scale directo en object3D
           if (this.isPinching && this.pointers.size === 2) {
             const dist = this._dist2Pointers();
             const delta = dist - this.prevDist;
             this.prevDist = dist;
 
             const factor = 1 + (delta * this.data.zoomSpeed);
-
             const obj = this.el.object3D;
+
             const nx = this.clamp(obj.scale.x * factor, this.data.minScale, this.data.maxScale);
             const ny = this.clamp(obj.scale.y * factor, this.data.minScale, this.data.maxScale);
             const nz = this.clamp(obj.scale.z * factor, this.data.minScale, this.data.maxScale);
+
             obj.scale.set(nx, ny, nz);
             return;
           }
 
-          // ===== TU LÓGICA ORIGINAL DE LA TAPA (SIN CAMBIOS) =====
+          // ===== TU LÓGICA ORIGINAL DE TAPA (SIN CAMBIOS) =====
           if (this.draggingPart === "tapa" && this.pointers.size === 1) {
             const dx = e.clientX - this.tapaLastX;
             const dy = e.clientY - this.tapaLastY;
@@ -353,24 +340,20 @@
             this._applyTapaAngleDeg(candidate);
             return;
           }
-          // =======================================================
+          // =====================================================
 
-          // Rotación del modelo completa: horizontal (Y) + vertical (X)
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
             const dy = e.clientY - this.prevY;
-
             if (Math.hypot(dx, dy) < this.data.minMovePx) return;
 
             this.prevX = e.clientX;
             this.prevY = e.clientY;
 
             const obj = this.el.object3D;
+            obj.rotation.y += dx * this.data.rotateSpeed;
+            obj.rotation.x += -dy * this.data.rotateSpeed;
 
-            obj.rotation.y += dx * this.data.rotateSpeed;     // izquierda/derecha
-            obj.rotation.x += -dy * this.data.rotateSpeed;    // arriba/abajo (invertido)
-
-            // clamp para no voltear el modelo (recomendado)
             const limit = THREE.MathUtils.degToRad(80);
             obj.rotation.x = this.clamp(obj.rotation.x, -limit, limit);
           }
@@ -401,7 +384,7 @@
       });
     </script>
 
-    <!-- Script: fijar modelo al detectar target 0 -->
+    <!-- ✅ Script: fijar modelo al detectar target 0 (CORREGIDO) -->
     <script>
       const scene = document.querySelector("#scene");
 
@@ -410,62 +393,82 @@
         const anchor = document.getElementById("persistentAnchor");
         const modelEl = document.getElementById("modelo");
 
-        const originalParent = modelEl.parentElement; // target0
+        // 1) Asegura que anchor sea hermano de target0 dentro del "root" que MindAR use
+        function ensureAnchorSameParent() {
+          const p = target0.parentElement;
+          if (p && anchor.parentElement !== p) {
+            p.appendChild(anchor);
+            console.log("✅ Anchor movido al mismo parent AR que target0");
+          }
+        }
 
-        function copyWorldPose(sourceEl, anchorEl) {
+        // 2) Copia transform LOCAL (no world) desde target0 hacia anchor (mismo parent => funciona)
+        function copyLocalPose(sourceEl, anchorEl) {
           const src = sourceEl.object3D;
           const anc = anchorEl.object3D;
 
+          src.updateMatrix();
           src.updateMatrixWorld(true);
 
-          const pos = new THREE.Vector3();
-          const quat = new THREE.Quaternion();
-          const scl = new THREE.Vector3();
-          src.matrixWorld.decompose(pos, quat, scl);
+          anc.position.copy(src.position);
+          anc.quaternion.copy(src.quaternion);
+          anc.scale.copy(src.scale);
 
-          anc.position.copy(pos);
-          anc.quaternion.copy(quat);
-
-          // OJO: copiamos escala del target al anchor (normalmente 1,1,1).
-          // Si te cambia el tamaño raro, te lo ajusto para NO copiar scale.
-          anc.scale.copy(scl);
-
+          anc.updateMatrix();
           anc.updateMatrixWorld(true);
         }
 
-        function lockModelToAnchor() {
-          // 1) Copia pose world del target al anchor
-          copyWorldPose(target0, anchor);
+        let modelReady = false;
+        let pendingLock = false;
 
-          // 2) Re-parent el modelo al anchor (ya no depende del tracking)
+        modelEl.addEventListener("model-loaded", () => {
+          modelReady = true;
+          console.log("✅ glTF listo");
+          if (pendingLock) {
+            pendingLock = false;
+            lockModelNow();
+          }
+        });
+
+        function lockModelNow() {
+          ensureAnchorSameParent();
+          copyLocalPose(target0, anchor);
+
+          // Re-parent
           if (modelEl.parentElement !== anchor) {
             anchor.appendChild(modelEl);
           }
 
-          // 3) Reset local transform del modelo (para que quede alineado al anchor)
+          // Asegura visible
+          modelEl.setAttribute("visible", true);
+          anchor.setAttribute("visible", true);
+
+          // Reset local para que quede alineado al anchor
           modelEl.object3D.position.set(0, 0, 0);
           modelEl.object3D.rotation.set(0, 0, 0);
-          // No tocamos scale: se queda con el scale del modelo y el zoom del usuario
           modelEl.object3D.updateMatrixWorld(true);
+
+          console.log("✅ Modelo fijado (persistente) y visible");
         }
 
-        // Cuando detecta target 0: fija el modelo
         target0.addEventListener("targetFound", () => {
-          lockModelToAnchor();
-          console.log("✅ target0 FOUND -> modelo fijado (persistente)");
+          // Si el glTF aún no ha cargado, aplaza el lock
+          if (!modelReady) {
+            pendingLock = true;
+            console.log("⏳ target0 found pero glTF no listo, lock pendiente...");
+            return;
+          }
+          lockModelNow();
         });
 
-        // Cuando se pierde target 0: no se hace nada (modelo queda visible y fijo)
         target0.addEventListener("targetLost", () => {
-          console.log("ℹ️ target0 LOST -> modelo permanece fijo");
+          // No hacemos nada: el modelo ya quedó en anchor
+          console.log("ℹ️ target0 lost -> modelo permanece fijo");
         });
-
-        // (Opcional) si quisieras volver al tracking en algún momento:
-        // window.__unlock = () => { originalParent.appendChild(modelEl); };
       });
     </script>
 
-    <!-- Script YouTube (target 1) -->
+    <!-- YouTube (target 1) -->
     <script>
       const scene2 = document.querySelector("#scene");
 
@@ -482,14 +485,12 @@
           overlay.classList.add("show");
           frame.src = YT_URL;
           overlay.setAttribute("aria-hidden", "false");
-          console.log("🎯 targetIndex 1 FOUND");
         };
 
         const closeYT = () => {
           frame.src = "";
           overlay.classList.remove("show");
           overlay.setAttribute("aria-hidden", "true");
-          console.log("❌ targetIndex 1 LOST");
         };
 
         closeBtn.addEventListener("click", closeYT);
@@ -499,8 +500,6 @@
 
         target1.addEventListener("targetFound", openYT);
         target1.addEventListener("targetLost", closeYT);
-
-        console.log("✅ scene loaded, target1:", target1);
       });
     </script>
   </body>
