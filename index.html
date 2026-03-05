@@ -362,46 +362,77 @@
     <script>
       document.addEventListener("DOMContentLoaded", () => {
         const target0 = document.querySelector("#target0");
-        const worldRoot = document.querySelector("#world-root");
+        const worldRootEl = document.querySelector("#world-root");
         const modelEl = document.querySelector("#modelo");
         const unanchorBtn = document.getElementById("unanchorBtn");
     
         let anchored = false;
         let anchoring = false;
     
-        // Guardamos el scale inicial por si al volver a anclar lo quieres idéntico
-        const initialScaleAttr = modelEl.getAttribute("scale") || "5 5 5";
+        // Guardamos el padre original (DOM) para regresar
+        const originalParentEl = modelEl.parentElement;
     
-        function ensureMeshReady(cb) {
-          // A-Frame marca el mesh cuando ya cargó el gltf
+        // Guardamos el transform "default" relativo al target (por si quieres reset al desanclar)
+        const defaultPos = new THREE.Vector3(0, 0, 0);
+        const defaultQuat = new THREE.Quaternion(); // identidad
+        const defaultScaleAttr = modelEl.getAttribute("scale") || "5 5 5";
+    
+        function waitModelReady(cb) {
           if (modelEl.getObject3D("mesh")) return cb();
-    
-          const once = () => {
-            modelEl.removeEventListener("model-loaded", once);
-            cb();
-          };
+          const once = () => { modelEl.removeEventListener("model-loaded", once); cb(); };
           modelEl.addEventListener("model-loaded", once);
+        }
+    
+        // Helper: world -> local de un parent Object3D
+        function worldToLocalPose(parentObj3D, worldPos, worldQuat) {
+          parentObj3D.updateMatrixWorld(true);
+    
+          const invParent = parentObj3D.matrixWorld.clone().invert();
+    
+          const localPos = worldPos.clone().applyMatrix4(invParent);
+    
+          const parentWorldQuat = new THREE.Quaternion();
+          parentObj3D.getWorldQuaternion(parentWorldQuat);
+          const localQuat = parentWorldQuat.invert().multiply(worldQuat.clone());
+    
+          return { localPos, localQuat };
         }
     
         function anchorNow() {
           if (anchored || anchoring) return;
           anchoring = true;
     
-          ensureMeshReady(() => {
+          waitModelReady(() => {
             try {
-              // 1) Asegurar matrices al día
+              // 1) Capturamos pose mundial del modelo (antes de moverlo)
               modelEl.object3D.updateMatrixWorld(true);
-              worldRoot.object3D.updateMatrixWorld(true);
     
-              // 2) Mover el MISMO object3D al worldRoot conservando su pose mundial
-              // (esto es lo que hace que NO desaparezca)
-              worldRoot.object3D.attach(modelEl.object3D);
+              const worldPos = new THREE.Vector3();
+              const worldQuat = new THREE.Quaternion();
+              const worldScale = new THREE.Vector3();
+    
+              modelEl.object3D.getWorldPosition(worldPos);
+              modelEl.object3D.getWorldQuaternion(worldQuat);
+              modelEl.object3D.getWorldScale(worldScale);
+    
+              // 2) Movemos el ELEMENTO (DOM) al world-root (esto es lo clave en A-Frame)
+              worldRootEl.appendChild(modelEl);
+    
+              // 3) Convertimos la pose mundial a local del world-root y aplicamos
+              const { localPos, localQuat } = worldToLocalPose(worldRootEl.object3D, worldPos, worldQuat);
+    
+              modelEl.object3D.position.copy(localPos);
+              modelEl.object3D.quaternion.copy(localQuat);
+              modelEl.object3D.scale.copy(worldScale);
+    
+              modelEl.object3D.updateMatrixWorld(true);
     
               anchored = true;
               anchoring = false;
     
               unanchorBtn.style.display = "block";
-              console.log("✅ ANCLADO (reparent): el modelo ya no depende del target0");
+              unanchorBtn.style.pointerEvents = "auto";
+              console.log("✅ ANCLADO: modelo movido a world-root (DOM) y pose preservada");
     
             } catch (err) {
               anchoring = false;
@@ -415,18 +446,17 @@
           if (!anchored) return;
     
           try {
-            // 1) Re-adjuntar al target para que vuelva a seguir al marcador
-            target0.object3D.updateMatrixWorld(true);
-            target0.object3D.attach(modelEl.object3D);
+            // 1) Volver a su padre original (DOM)
+            originalParentEl.appendChild(modelEl);
     
-            // 2) Reset relativo al target (para que quede centrado en el marcador)
-            modelEl.object3D.position.set(0, 0, 0);
-            modelEl.object3D.rotation.set(0, 0, 0);
+            // 2) Reset relativo al target (para que vuelva a coincidir con el marcador)
+            modelEl.object3D.position.copy(defaultPos);
+            modelEl.object3D.quaternion.copy(defaultQuat);
     
-            // asegurar scale (por si el usuario hizo zoom)
-            const s = initialScaleAttr.split(" ").map(Number);
-            if (s.length === 3 && s.every(n => !Number.isNaN(n))) {
-              modelEl.object3D.scale.set(s[0], s[1], s[2]);
+            // reset scale al default (si el usuario hizo zoom)
+            const parts = defaultScaleAttr.split(" ").map(Number);
+            if (parts.length === 3 && parts.every(n => !Number.isNaN(n))) {
+              modelEl.object3D.scale.set(parts[0], parts[1], parts[2]);
             }
     
             modelEl.object3D.updateMatrixWorld(true);
@@ -435,21 +465,22 @@
             anchoring = false;
     
             unanchorBtn.style.display = "none";
-            console.log("🔓 DESANCLADO: el modelo vuelve a depender del target0");
+            console.log("🔓 DESANCLADO: modelo regresó al target0 (DOM) y se reseteó");
     
           } catch (err) {
             console.error("❌ Error desanclando:", err);
           }
         }
     
-        // Anclar solo en el primer scan
+        // Anclar solo primer scan (o sea: si está anclado, no vuelve a anclar)
         target0.addEventListener("targetFound", () => {
           console.log("🎯 target0 FOUND");
           anchorNow();
         });
     
-        // Botón desanclar
-        unanchorBtn.addEventListener("click", unanchorNow);
+        // Botón desanclar: usa click + touchstart por si el canvas se pone intenso
+        unanchorBtn.addEventListener("click", (e) => { e.preventDefault(); unanchorNow(); });
+        unanchorBtn.addEventListener("touchstart", (e) => { e.preventDefault(); unanchorNow(); }, { passive: false });
       });
     </script>
     <!-- =========================
@@ -488,6 +519,7 @@
     </script>
   </body>
 </html>
+
 
 
 
