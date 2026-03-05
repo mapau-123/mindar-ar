@@ -9,30 +9,52 @@
       html, body { margin: 0; overflow: hidden; }
       body { touch-action: none; }
 
-      /* Overlay YouTube */
+      /* Overlay YouTube: una sola fuente de verdad = clase .show */
+      #ytOverlay {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.65);
+        z-index: 9999;
+        pointer-events: none;
+      }
+      #ytOverlay.show { display: flex; pointer-events: auto; }
+
+      #ytCard {
+        width: min(92vw, 900px);
+        aspect-ratio: 16/9;
+        background: #000;
+        border-radius: 14px;
+        overflow: hidden;
+      }
       #ytOverlay { pointer-events: none; }
       #ytOverlay.show { display: flex !important; pointer-events: auto; }
 
-      /* Botón desanclar (siempre clickeable) */
+      #ytClose {
+      /* Botón desanclar */
       #unanchorBtn{
         position: fixed;
+        top: 16px;
+        right: 16px;
+        font-size: 18px;
         left: 16px;
         bottom: 16px;
-        z-index: 100000;              /* por encima del canvas */
+        z-index: 9998;
         padding: 10px 14px;
         border: 0;
+        border-radius: 10px;
         border-radius: 12px;
         font-size: 16px;
         cursor: pointer;
-        display: none;                /* solo aparece cuando está anclado */
-        pointer-events: auto;
-        touch-action: manipulation;   /* no lo bloquea touch-action none */
+        display: none; /* solo aparece cuando está anclado */
       }
     </style>
   </head>
 
   <body>
-    <button id="unanchorBtn" type="button">Desanclar</button>
+    <button id="unanchorBtn">Desanclar</button>
 
     <a-scene
       id="scene"
@@ -44,7 +66,9 @@
     >
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
 
-      <!-- ✅ Contenedor libre en mundo (solo para colgar object3D, NO mover DOM del modelo) -->
+      <!-- Target 0: modelo (persistente tras el primer found) -->
+      <a-entity id="target0" mindar-image-target="targetIndex: 0" persist-on-lost>
+      <!-- ✅ Contenedor libre en mundo -->
       <a-entity id="world-root"></a-entity>
 
       <!-- Target 0: modelo -->
@@ -55,6 +79,7 @@
           position="0 0 0"
           rotation="0 0 0"
           scale="5 5 5"
+          gesture-controls="debug: false; tapaName: tapa_v31; tapaAxis: x; tapaMinDeg: 0; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
           gesture-controls="tapaName: tapa_v31; tapaAxis: x; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
         ></a-gltf-model>
       </a-entity>
@@ -64,6 +89,8 @@
     </a-scene>
 
     <!-- Overlay YouTube -->
+    <div id="ytOverlay" aria-hidden="true">
+      <div id="ytCard">
     <div id="ytOverlay" style="
       position: fixed;
       inset: 0;
@@ -76,12 +103,15 @@
       <div style="width: min(92vw, 900px); aspect-ratio: 16/9; background: #000; border-radius: 14px; overflow: hidden;">
         <iframe
           id="ytFrame"
+          width="100%"
+          height="100%"
           width="100%" height="100%"
           frameborder="0"
           allow="autoplay; encrypted-media; picture-in-picture"
           allowfullscreen
         ></iframe>
       </div>
+      <button id="ytClose" type="button">Cerrar ✕</button>
 
       <button id="ytClose" style="
         position: fixed;
@@ -94,13 +124,97 @@
       ">Cerrar ✕</button>
     </div>
 
+    <!-- 1) Componente: mantener visible después del primer targetFound -->
+    <script>
+      AFRAME.registerComponent("persist-on-lost", {
+        schema: {
+          lockOnFirstFound: { type: "boolean", default: true }
+        },
+    
+        init: function () {
+          this.locked = false;
+    
+          // Fuerza visible en todo el árbol (target + hijos + meshes)
+          this.forceVisibleTree = () => {
+            // A-Frame flag
+            this.el.setAttribute("visible", true);
+    
+            // Three.js flags (árbol completo)
+            const root = this.el.object3D;
+            if (!root) return;
+    
+            root.visible = true;
+    
+            root.traverse((o) => {
+              o.visible = true;
+            });
+          };
+    
+          this.onFound = () => {
+            if (this.data.lockOnFirstFound) this.locked = true;
+            this.forceVisibleTree();
+            console.log("✅ target FOUND -> locked:", this.locked);
+          };
+    
+          this.onLost = () => {
+            if (!this.locked) return;
+    
+            // Primero intentamos inmediatamente
+            this.forceVisibleTree();
+    
+            // Y luego otra vez en el próximo tick del event-loop
+            // (porque MindAR suele poner visible=false después del evento)
+            setTimeout(() => {
+              if (this.locked) this.forceVisibleTree();
+            }, 0);
+    
+            console.log("ℹ️ target LOST -> mantengo visible (locked)");
+          };
+    
+          this.el.addEventListener("targetFound", this.onFound);
+          this.el.addEventListener("targetLost", this.onLost);
+        },
+    
+        tick: function () {
+          // Mientras esté locked, le ganamos a MindAR cada frame si intenta ocultar algo.
+          if (!this.locked) return;
+    
+          const root = this.el.object3D;
+          if (!root) return;
+    
+          // Si algo se apagó, lo re-encendemos
+          if (!root.visible || this.el.getAttribute("visible") === false) {
+            this.forceVisibleTree();
+            return;
+          }
+    
+          // A veces el root queda visible, pero un hijo (mesh) no.
+          // Revisamos rápido: si detectamos un hijo invisible, forzamos todo.
+          let foundInvisibleChild = false;
+          root.traverse((o) => {
+            if (!o.visible) foundInvisibleChild = true;
+          });
+    
+          if (foundInvisibleChild) {
+            this.forceVisibleTree();
+          }
+        },
+    
+        remove: function () {
+          this.el.removeEventListener("targetFound", this.onFound);
+          this.el.removeEventListener("targetLost", this.onLost);
+        }
+      });
+    </script>
+    <!-- 2) Tu componente de gestos (zoom + rotación X/Y + tu lógica de tapa intacta) -->
     <!-- =========================
-         1) gesture-controls (TU lógica de tapa intacta)
-         + rotación solo horizontal (como en tu versión)
+         1) Tu componente gesture-controls (sin cambios)
          ========================= -->
     <script>
       AFRAME.registerComponent("gesture-controls", {
         schema: {
+          debug: { type: "boolean", default: false },
+
           zoomSpeed: { type: "number", default: 0.0025 },
           minScale:  { type: "number", default: 0.8 },
           maxScale:  { type: "number", default: 15.0 },
@@ -140,6 +254,7 @@
 
           this.prevDist = 0;
           this.prevX = 0;
+          this.prevY = 0;
 
           this.onPointerDown = this.onPointerDown.bind(this);
           this.onPointerMove = this.onPointerMove.bind(this);
@@ -148,11 +263,14 @@
           this.el.addEventListener("model-loaded", () => {
             this.modelRoot = this.el.object3D;
 
-            // Debug axes (si no los quieres, bórralos)
+            if (this.data.debug) {
+              this.modelRoot.add(new THREE.AxesHelper(0.6));
+            }
             this.modelRoot.add(new THREE.AxesHelper(0.6));
 
             this.tapaObj = this.modelRoot.getObjectByName(this.data.tapaName);
             if (this.tapaObj) {
+              if (this.data.debug) this.tapaObj.add(new THREE.AxesHelper(0.3));
               this.tapaObj.add(new THREE.AxesHelper(0.3));
               console.log("✅ Tapa encontrada:", this.data.tapaName);
             } else {
@@ -160,20 +278,52 @@
             }
           });
 
+          this.el.sceneEl.addEventListener("loaded", () => {
           const waitForCanvas = () => {
             const scene = this.el.sceneEl;
             if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
               this.canvas = scene.renderer.domElement;
               this.camera = scene.camera;
 
+            let tries = 0;
+            const attach = () => {
+              if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
+                this.canvas = scene.renderer.domElement;
+                this.camera = scene.camera;
+
+                this.canvas.style.touchAction = "none";
               this.canvas.style.touchAction = "none";
 
+                this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
+                window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
+                window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
+                window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
+
+                console.log("✅ Pointer events activos");
+                return true;
+              }
+              return false;
+            };
+
+            if (attach()) return;
+
+            const id = setInterval(() => {
+              tries++;
+              if (attach() || tries >= 10) clearInterval(id);
+            }, 80);
+          });
+        },
+
+        remove: function () {
+          if (!this.canvas) return;
+          this.canvas.removeEventListener("pointerdown", this.onPointerDown, true);
+          window.removeEventListener("pointermove", this.onPointerMove, true);
+          window.removeEventListener("pointerup", this.onPointerUp, true);
+          window.removeEventListener("pointercancel", this.onPointerUp, true);
               this.canvas.addEventListener("pointerdown", this.onPointerDown, { passive: false, capture: true });
               window.addEventListener("pointermove", this.onPointerMove, { passive: false, capture: true });
               window.addEventListener("pointerup", this.onPointerUp, { passive: false, capture: true });
               window.addEventListener("pointercancel", this.onPointerUp, { passive: false, capture: true });
-
-              console.log("✅ Pointer events activos");
             } else {
               setTimeout(waitForCanvas, 100);
             }
@@ -217,6 +367,7 @@
           if (!this.tapaObj) return;
           this.tapaAngleDeg = this.clamp(deg, this.data.tapaMinDeg, this.data.tapaMaxDeg);
 
+          const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg); // invertido
           const rad = -THREE.MathUtils.degToRad(this.tapaAngleDeg);
           const axis = (this.data.tapaAxis || "x").toLowerCase();
 
@@ -228,7 +379,9 @@
         onPointerDown: function (e) {
           if (e.pointerType !== "touch") return;
           if (e.cancelable) e.preventDefault();
+
           try { this.canvas && this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
+          try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -263,6 +416,7 @@
             this.isRotating = true;
             this.isPinching = false;
             this.prevX = e.clientX;
+            this.prevY = e.clientY;
           }
         },
 
@@ -281,6 +435,11 @@
             const factor = 1 + (delta * this.data.zoomSpeed);
             const s = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
 
+            const obj = this.el.object3D;
+            const nx = this.clamp(obj.scale.x * factor, this.data.minScale, this.data.maxScale);
+            const ny = this.clamp(obj.scale.y * factor, this.data.minScale, this.data.maxScale);
+            const nz = this.clamp(obj.scale.z * factor, this.data.minScale, this.data.maxScale);
+            obj.scale.set(nx, ny, nz);
             const nx = this.clamp(s.x * factor, this.data.minScale, this.data.maxScale);
             const ny = this.clamp(s.y * factor, this.data.minScale, this.data.maxScale);
             const nz = this.clamp(s.z * factor, this.data.minScale, this.data.maxScale);
@@ -338,8 +497,19 @@
 
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
+            const dy = e.clientY - this.prevY;
+            if (Math.hypot(dx, dy) < this.data.minMovePx) return;
+
             if (Math.abs(dx) < this.data.minMovePx) return;
             this.prevX = e.clientX;
+            this.prevY = e.clientY;
+
+            const obj = this.el.object3D;
+            obj.rotation.y += dx * this.data.rotateSpeed;
+            obj.rotation.x += -dy * this.data.rotateSpeed;
+
+            const limit = THREE.MathUtils.degToRad(80);
+            obj.rotation.x = this.clamp(obj.rotation.x, -limit, limit);
             this.el.object3D.rotation.y += dx * this.data.rotateSpeed;
           }
         },
@@ -369,118 +539,111 @@
       });
     </script>
 
+    <!-- 3) Script YouTube (target 1) - ÚNICO -->
     <!-- =========================
-         2) ANCLAR / DESANCLAR (CORREGIDO):
-            - NO mover DOM del <a-gltf-model>
-            - usar THREE.Object3D.attach() para reparentar manteniendo pose world
-            - mantener visible aunque se pierda el target
+         2) ANCLAR: primer scan + NO ocultar hasta que fixed cargue
          ========================= -->
     <script>
+      const scene = document.querySelector("#scene");
       document.addEventListener("DOMContentLoaded", () => {
-        const sceneEl     = document.querySelector("#scene");
-        const target0El   = document.querySelector("#target0");
-        const worldRootEl = document.querySelector("#world-root");
-        const modelEl     = document.querySelector("#modelo");
+        const target0 = document.querySelector("#target0");
+        const worldRoot = document.querySelector("#world-root");
+        const originalModel = document.querySelector("#modelo");
         const unanchorBtn = document.getElementById("unanchorBtn");
 
-        let anchored  = false;
-        let modelReady = false;
-        let sceneReady = false;
+        let fixedOnce = false;
+        let fixingNow = false;
+        let fixedEl = null;
 
-        const defaultPos  = new THREE.Vector3(0, 0, 0);
-        const defaultQuat = new THREE.Quaternion(); // identidad
+        // helper: crea el fixed
+        const createFixed = () => {
+          // pose mundial del modelo original
+          originalModel.object3D.updateMatrixWorld(true);
 
-        function forceVisible(obj3d){
-          if (!obj3d) return;
-          obj3d.visible = true;
-          obj3d.traverse(o => o.visible = true);
-        }
+          const worldPos = new THREE.Vector3();
+          const worldQuat = new THREE.Quaternion();
+          originalModel.object3D.getWorldPosition(worldPos);
+          originalModel.object3D.getWorldQuaternion(worldQuat);
 
-        function updateBtn(){
-          unanchorBtn.style.display = anchored ? "block" : "none";
-          unanchorBtn.style.pointerEvents = "auto";
-        }
+          const el = document.createElement("a-gltf-model");
+          el.setAttribute("id", "modelo-fixed");
+          el.setAttribute("src", originalModel.getAttribute("src"));
+          el.setAttribute("scale", originalModel.getAttribute("scale") || "5 5 5");
+          el.setAttribute("gesture-controls", originalModel.getAttribute("gesture-controls") || "");
 
-        sceneEl.addEventListener("loaded", () => {
-          sceneReady = true;
-          console.log("✅ scene ready");
-        });
+          worldRoot.appendChild(el);
 
-        modelEl.addEventListener("model-loaded", () => {
-          modelReady = true;
-          console.log("✅ glTF listo");
-        });
+          el.addEventListener("model-loaded", () => {
+            // convertir mundo -> local worldRoot
+            worldRoot.object3D.updateMatrixWorld(true);
+            const p = worldPos.clone();
+            worldRoot.object3D.worldToLocal(p);
 
-        function anchorNow(){
-          if (anchored) return;
-          if (!sceneReady || !modelReady) {
-            console.log("⏳ anchorNow: esperando scene/model...", { sceneReady, modelReady });
+            el.object3D.position.copy(p);
+            el.object3D.quaternion.copy(worldQuat);
+            el.object3D.updateMatrixWorld(true);
+
+            // ✅ ahora sí: ocultar original
+            originalModel.setAttribute("visible", "false");
+
+            fixedOnce = true;
+            fixingNow = false;
+            fixedEl = el;
+
+            unanchorBtn.style.display = "block";
+            console.log("✅ ANCLADO: modelo-fixed listo");
+          });
+
+          el.addEventListener("model-error", (e) => {
+            console.error("❌ Error cargando fixed:", e?.detail || e);
+            // si falla, NO ocultamos el original
+            originalModel.setAttribute("visible", "true");
+            fixingNow = false;
+            fixedOnce = false;
+            try { worldRoot.removeChild(el); } catch(_) {}
+          });
+        };
+
+        target0.addEventListener("targetFound", () => {
+          console.log("🎯 target0 FOUND");
+
+      scene.addEventListener("loaded", () => {
+          if (fixedOnce || fixingNow) return; // solo primer scan
+          fixingNow = true;
+
+          // Si por alguna razón el modelo aún no está listo, esperamos a model-loaded
+          if (!originalModel.getObject3D("mesh")) {
+            console.log("⏳ original mesh aún no listo, esperando model-loaded...");
+            const once = () => {
+              originalModel.removeEventListener("model-loaded", once);
+              createFixed();
+            };
+            originalModel.addEventListener("model-loaded", once);
             return;
           }
 
-          try {
-            // Importante: NO mover DOM. Solo mover object3D.
-            worldRootEl.object3D.updateMatrixWorld(true);
-            modelEl.object3D.updateMatrixWorld(true);
-
-            // Re-parent manteniendo pose world
-            worldRootEl.object3D.attach(modelEl.object3D);
-
-            forceVisible(worldRootEl.object3D);
-            forceVisible(modelEl.object3D);
-
-            anchored = true;
-            updateBtn();
-            console.log("✅ ANCLADO con Object3D.attach()");
-          } catch (err) {
-            console.error("❌ Error anclando:", err);
-          }
-        }
-
-        function unanchorNow(){
-          if (!anchored) return;
-
-          try {
-            target0El.object3D.updateMatrixWorld(true);
-            modelEl.object3D.updateMatrixWorld(true);
-
-            // Volver a colgar del target0 (tracking normal)
-            target0El.object3D.attach(modelEl.object3D);
-
-            // Reset local (para que quede alineado al marcador)
-            modelEl.object3D.position.copy(defaultPos);
-            modelEl.object3D.quaternion.copy(defaultQuat);
-
-            forceVisible(target0El.object3D);
-            forceVisible(modelEl.object3D);
-
-            anchored = false;
-            updateBtn();
-            console.log("🔓 DESANCLADO: volvió al tracking del target0");
-          } catch (err) {
-            console.error("❌ Error desanclando:", err);
-          }
-        }
-
-        // Anclar al primer scan
-        target0El.addEventListener("targetFound", () => {
-          console.log("🎯 target0 FOUND");
-          anchorNow();
+          createFixed();
         });
 
-        // Si se pierde el target, mantener visible si está anclado
-        target0El.addEventListener("targetLost", () => {
-          if (!anchored) return;
-          forceVisible(worldRootEl.object3D);
-          forceVisible(modelEl.object3D);
-          console.log("ℹ️ target0 LOST -> modelo permanece fijo");
+        // botón desanclar
+        unanchorBtn.addEventListener("click", () => {
+          console.log("🔓 DESANCLAR");
+
+          // borrar fixed
+          if (fixedEl && fixedEl.parentNode) {
+            fixedEl.parentNode.removeChild(fixedEl);
+          }
+          fixedEl = null;
+
+          // mostrar original
+          originalModel.setAttribute("visible", "true");
+
+          // permitir anclar de nuevo en siguiente scan
+          fixedOnce = false;
+          fixingNow = false;
+
+          unanchorBtn.style.display = "none";
         });
-
-        // Botón desanclar (click + touchstart)
-        unanchorBtn.addEventListener("click", (e) => { e.preventDefault(); unanchorNow(); });
-        unanchorBtn.addEventListener("touchstart", (e) => { e.preventDefault(); unanchorNow(); }, { passive: false });
-
-        updateBtn();
       });
     </script>
 
@@ -501,11 +664,15 @@
           overlay.style.display = "flex";
           overlay.classList.add("show");
           frame.src = YT_URL;
+          overlay.setAttribute("aria-hidden", "false");
+          console.log("🎯 targetIndex 1 FOUND");
         };
 
         const closeYT = () => {
           frame.src = "";
           overlay.classList.remove("show");
+          overlay.setAttribute("aria-hidden", "true");
+          console.log("❌ targetIndex 1 LOST");
           overlay.style.display = "none";
         };
 
@@ -516,6 +683,8 @@
 
         target1.addEventListener("targetFound", openYT);
         target1.addEventListener("targetLost", closeYT);
+
+        console.log("✅ scene loaded, target1:", target1);
       });
     </script>
   </body>
