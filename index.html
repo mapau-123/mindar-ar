@@ -4,42 +4,36 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
     <style>
       html, body { margin: 0; overflow: hidden; }
       body { touch-action: none; }
 
-      #ytOverlay { pointer-events: none; }
-      #ytOverlay.show { display: flex !important; pointer-events: auto; }
-
-      /* Botón desanclar */
-      #unanchorBtn{
+      /* Overlay YouTube (sin mezclar display/style y class en lógica; aquí lo dejamos simple) */
+      #ytOverlay {
         position: fixed;
-        left: 16px;
-        bottom: 16px;
-        z-index: 9998;
-        padding: 10px 14px;
-        border: 0;
-        border-radius: 12px;
-        font-size: 16px;
-        cursor: pointer;
-        display: none; /* solo aparece cuando está anclado */
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0,0,0,0.65);
+        z-index: 9999;
+        pointer-events: none;
       }
+      #ytOverlay.show { display: flex; pointer-events: auto; }
     </style>
   </head>
 
   <body>
-    <button id="unanchorBtn">Desanclar</button>
-
     <a-scene
       id="scene"
       mindar-image="imageTargetSrc: ./targets0.mind;"
       vr-mode-ui="enabled: false"
       device-orientation-permission-ui="enabled: false"
+      renderer="precision: mediump; antialias: false; alpha: true; logarithmicDepthBuffer: false;"
+      shadow="type: none"
     >
       <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
-
-      <!-- ✅ Contenedor libre en mundo -->
-      <a-entity id="world-root"></a-entity>
 
       <!-- Target 0: modelo -->
       <a-entity id="target0" mindar-image-target="targetIndex: 0">
@@ -49,7 +43,7 @@
           position="0 0 0"
           rotation="0 0 0"
           scale="5 5 5"
-          gesture-controls="tapaName: tapa_v31; tapaAxis: x; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
+          gesture-controls="tapaName: tapa_v31; tapaAxis: x; tapaMinDeg: 0; tapaMaxDeg: 180; tapaDegPerPx: 0.5;"
         ></a-gltf-model>
       </a-entity>
 
@@ -58,15 +52,7 @@
     </a-scene>
 
     <!-- Overlay YouTube -->
-    <div id="ytOverlay" style="
-      position: fixed;
-      inset: 0;
-      display: none;
-      align-items: center;
-      justify-content: center;
-      background: rgba(0,0,0,0.65);
-      z-index: 9999;
-    ">
+    <div id="ytOverlay" aria-hidden="true">
       <div style="width: min(92vw, 900px); aspect-ratio: 16/9; background: #000; border-radius: 14px; overflow: hidden;">
         <iframe
           id="ytFrame"
@@ -77,7 +63,7 @@
         ></iframe>
       </div>
 
-      <button id="ytClose" style="
+      <button id="ytClose" type="button" style="
         position: fixed;
         top: 16px; right: 16px;
         font-size: 18px;
@@ -89,7 +75,10 @@
     </div>
 
     <!-- =========================
-         1) Tu componente gesture-controls (sin cambios)
+         gesture-controls (LIMPIO)
+         - Muestra el modelo normal (sin ejes)
+         - Tapa con movimiento en "U" (tu lógica intacta)
+         - Zoom (pinch) y rotación horizontal del modelo (como lo tenías aquí)
          ========================= -->
     <script>
       AFRAME.registerComponent("gesture-controls", {
@@ -138,19 +127,19 @@
           this.onPointerMove = this.onPointerMove.bind(this);
           this.onPointerUp   = this.onPointerUp.bind(this);
 
+          // Cuando carga el glTF: SOLO buscamos la tapa (sin ejes)
           this.el.addEventListener("model-loaded", () => {
             this.modelRoot = this.el.object3D;
-            this.modelRoot.add(new THREE.AxesHelper(0.6));
 
             this.tapaObj = this.modelRoot.getObjectByName(this.data.tapaName);
             if (this.tapaObj) {
-              this.tapaObj.add(new THREE.AxesHelper(0.3));
               console.log("✅ Tapa encontrada:", this.data.tapaName);
             } else {
               console.warn("⚠️ No encontré la tapa con nombre:", this.data.tapaName);
             }
           });
 
+          // Esperar a que la escena tenga renderer/camera para enganchar punteros
           const waitForCanvas = () => {
             const scene = this.el.sceneEl;
             if (scene && scene.renderer && scene.renderer.domElement && scene.camera) {
@@ -217,7 +206,7 @@
         onPointerDown: function (e) {
           if (e.pointerType !== "touch") return;
           if (e.cancelable) e.preventDefault();
-          try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
+          try { this.canvas && this.canvas.setPointerCapture(e.pointerId); } catch (_) {}
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
@@ -262,6 +251,7 @@
 
           this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+          // Zoom (pinch)
           if (this.isPinching && this.pointers.size === 2) {
             const dist = this._dist2Pointers();
             const delta = dist - this.prevDist;
@@ -278,6 +268,7 @@
             return;
           }
 
+          // ===== TU LÓGICA ORIGINAL DE TAPA EN "U" (SIN CAMBIOS) =====
           if (this.draggingPart === "tapa" && this.pointers.size === 1) {
             const dx = e.clientX - this.tapaLastX;
             const dy = e.clientY - this.tapaLastY;
@@ -322,7 +313,9 @@
             this._applyTapaAngleDeg(candidate);
             return;
           }
+          // ===========================================================
 
+          // Rotación horizontal del modelo completo
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
             if (Math.abs(dx) < this.data.minMovePx) return;
@@ -357,194 +350,7 @@
     </script>
 
     <!-- =========================
-         2) ANCLAR: primer scan + NO ocultar hasta que fixed cargue
-         ========================= -->
-    <script>
-      document.addEventListener("DOMContentLoaded", () => {
-        const target0 = document.querySelector("#target0");
-        const worldRoot = document.querySelector("#world-root");
-        const originalModel = document.querySelector("#modelo");
-        const modelEl = document.querySelector("#modelo");
-        const unanchorBtn = document.getElementById("unanchorBtn");
-
-        let fixedOnce = false;
-        let fixingNow = false;
-        let fixedEl = null;
-
-        // helper: crea el fixed
-        const createFixed = () => {
-          // pose mundial del modelo original
-          originalModel.object3D.updateMatrixWorld(true);
-
-          const worldPos = new THREE.Vector3();
-          const worldQuat = new THREE.Quaternion();
-          originalModel.object3D.getWorldPosition(worldPos);
-          originalModel.object3D.getWorldQuaternion(worldQuat);
-
-          const el = document.createElement("a-gltf-model");
-          el.setAttribute("id", "modelo-fixed");
-          el.setAttribute("src", originalModel.getAttribute("src"));
-          el.setAttribute("scale", originalModel.getAttribute("scale") || "5 5 5");
-          el.setAttribute("gesture-controls", originalModel.getAttribute("gesture-controls") || "");
-
-          worldRoot.appendChild(el);
-
-          el.addEventListener("model-loaded", () => {
-            // convertir mundo -> local worldRoot
-            worldRoot.object3D.updateMatrixWorld(true);
-            const p = worldPos.clone();
-            worldRoot.object3D.worldToLocal(p);
-
-            el.object3D.position.copy(p);
-            el.object3D.quaternion.copy(worldQuat);
-            el.object3D.updateMatrixWorld(true);
-
-            // ✅ ahora sí: ocultar original
-            originalModel.setAttribute("visible", "false");
-
-            fixedOnce = true;
-            fixingNow = false;
-            fixedEl = el;
-
-            unanchorBtn.style.display = "block";
-            console.log("✅ ANCLADO: modelo-fixed listo");
-          });
-
-          el.addEventListener("model-error", (e) => {
-            console.error("❌ Error cargando fixed:", e?.detail || e);
-            // si falla, NO ocultamos el original
-            originalModel.setAttribute("visible", "true");
-            fixingNow = false;
-            fixedOnce = false;
-            try { worldRoot.removeChild(el); } catch(_) {}
-    
-        let anchored = false;
-        let anchoring = false;
-    
-        // Guardamos el scale inicial por si al volver a anclar lo quieres idéntico
-        const initialScaleAttr = modelEl.getAttribute("scale") || "5 5 5";
-    
-        function ensureMeshReady(cb) {
-          // A-Frame marca el mesh cuando ya cargó el gltf
-          if (modelEl.getObject3D("mesh")) return cb();
-    
-          const once = () => {
-            modelEl.removeEventListener("model-loaded", once);
-            cb();
-          };
-          modelEl.addEventListener("model-loaded", once);
-        }
-    
-        function anchorNow() {
-          if (anchored || anchoring) return;
-          anchoring = true;
-    
-          ensureMeshReady(() => {
-            try {
-              // 1) Asegurar matrices al día
-              modelEl.object3D.updateMatrixWorld(true);
-              worldRoot.object3D.updateMatrixWorld(true);
-    
-              // 2) Mover el MISMO object3D al worldRoot conservando su pose mundial
-              // (esto es lo que hace que NO desaparezca)
-              worldRoot.object3D.attach(modelEl.object3D);
-    
-              anchored = true;
-              anchoring = false;
-    
-              unanchorBtn.style.display = "block";
-              console.log("✅ ANCLADO (reparent): el modelo ya no depende del target0");
-    
-            } catch (err) {
-              anchoring = false;
-              anchored = false;
-              console.error("❌ Error anclando:", err);
-            }
-          });
-        };
-
-        }
-    
-        function unanchorNow() {
-          if (!anchored) return;
-    
-          try {
-            // 1) Re-adjuntar al target para que vuelva a seguir al marcador
-            target0.object3D.updateMatrixWorld(true);
-            target0.object3D.attach(modelEl.object3D);
-    
-            // 2) Reset relativo al target (para que quede centrado en el marcador)
-            modelEl.object3D.position.set(0, 0, 0);
-            modelEl.object3D.rotation.set(0, 0, 0);
-    
-            // asegurar scale (por si el usuario hizo zoom)
-            const s = initialScaleAttr.split(" ").map(Number);
-            if (s.length === 3 && s.every(n => !Number.isNaN(n))) {
-              modelEl.object3D.scale.set(s[0], s[1], s[2]);
-            }
-    
-            modelEl.object3D.updateMatrixWorld(true);
-    
-            anchored = false;
-            anchoring = false;
-    
-            unanchorBtn.style.display = "none";
-            console.log("🔓 DESANCLADO: el modelo vuelve a depender del target0");
-    
-          } catch (err) {
-            console.error("❌ Error desanclando:", err);
-          }
-        }
-    
-        // Anclar solo en el primer scan
-        target0.addEventListener("targetFound", () => {
-          console.log("🎯 target0 FOUND");
-
-          if (fixedOnce || fixingNow) return; // solo primer scan
-          fixingNow = true;
-
-          // Si por alguna razón el modelo aún no está listo, esperamos a model-loaded
-          if (!originalModel.getObject3D("mesh")) {
-            console.log("⏳ original mesh aún no listo, esperando model-loaded...");
-            const once = () => {
-              originalModel.removeEventListener("model-loaded", once);
-              createFixed();
-            };
-            originalModel.addEventListener("model-loaded", once);
-            return;
-          }
-
-          createFixed();
-        });
-
-        // botón desanclar
-        unanchorBtn.addEventListener("click", () => {
-          console.log("🔓 DESANCLAR");
-
-          // borrar fixed
-          if (fixedEl && fixedEl.parentNode) {
-            fixedEl.parentNode.removeChild(fixedEl);
-          }
-          fixedEl = null;
-
-          // mostrar original
-          originalModel.setAttribute("visible", "true");
-
-          // permitir anclar de nuevo en siguiente scan
-          fixedOnce = false;
-          fixingNow = false;
-
-          unanchorBtn.style.display = "none";
-          anchorNow();
-        });
-    
-        // Botón desanclar
-        unanchorBtn.addEventListener("click", unanchorNow);
-      });
-    </script>
-
-    <!-- =========================
-         3) YouTube overlay (sin duplicados)
+         YouTube overlay (target 1) - LIMPIO
          ========================= -->
     <script>
       document.addEventListener("DOMContentLoaded", () => {
@@ -557,15 +363,15 @@
         const YT_URL = `https://www.youtube-nocookie.com/embed/${VIDEO_ID}?autoplay=1&playsinline=1&rel=0`;
 
         const openYT = () => {
-          overlay.style.display = "flex";
           overlay.classList.add("show");
           frame.src = YT_URL;
+          overlay.setAttribute("aria-hidden", "false");
         };
 
         const closeYT = () => {
           frame.src = "";
           overlay.classList.remove("show");
-          overlay.style.display = "none";
+          overlay.setAttribute("aria-hidden", "true");
         };
 
         closeBtn.addEventListener("click", closeYT);
@@ -579,4 +385,3 @@
     </script>
   </body>
 </html>
-
