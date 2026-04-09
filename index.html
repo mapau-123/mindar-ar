@@ -315,12 +315,25 @@
           }
           // ===========================================================
 
-          // Rotación horizontal del modelo completo
+          // Rotación horizontal + vertical del modelo
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
-            if (Math.abs(dx) < this.data.minMovePx) return;
+            const dy = e.clientY - (this.prevY || e.clientY);
+          
+            if (Math.abs(dx) < this.data.minMovePx && Math.abs(dy) < this.data.minMovePx) return;
+          
             this.prevX = e.clientX;
+            this.prevY = e.clientY;
+          
+            // Rotación horizontal (izquierda/derecha)
             this.el.object3D.rotation.y += dx * this.data.rotateSpeed;
+          
+            // Rotación vertical (arriba/abajo)
+            this.el.object3D.rotation.x += dy * this.data.rotateSpeed;
+          
+            // 🔒 Opcional: limitar inclinación para que no se voltee raro
+            const maxTilt = Math.PI / 2; // 90°
+            this.el.object3D.rotation.x = Math.max(-maxTilt, Math.min(maxTilt, this.el.object3D.rotation.x));
           }
         },
 
