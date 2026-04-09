@@ -101,16 +101,25 @@
             const delta = dist - this.prevDist;
             this.prevDist = dist;
 
-            const scale = this.el.getAttribute("scale") || { x: 1, y: 1, z: 1 };
-            const factor = 1 + delta * 0.002;
-
+            const containerEl = document.querySelector("#modelContainer");
+            
+            // 🔥 Leer escala correcta
+            const scale = containerEl.getAttribute("scale") || { x: 1, y: 1, z: 1 };
+            
+            // 🔥 Ajuste más suave
+            const factor = 1 + delta * 0.001;
+            
+            // 🔒 Limitar zoom
+            const minScale = 0.5;
+            const maxScale = 10;
+            
             const newScale = {
-              x: scale.x * factor,
-              y: scale.y * factor,
-              z: scale.z * factor
+              x: Math.min(maxScale, Math.max(minScale, scale.x * factor)),
+              y: Math.min(maxScale, Math.max(minScale, scale.y * factor)),
+              z: Math.min(maxScale, Math.max(minScale, scale.z * factor))
             };
-
-            document.querySelector("#modelContainer").setAttribute("scale", newScale);
+            
+            containerEl.setAttribute("scale", newScale);
             return;
           }
 
