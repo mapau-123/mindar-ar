@@ -318,26 +318,20 @@
           // Rotación horizontal + vertical del modelo
           if (this.isRotating && this.pointers.size === 1) {
             const dx = e.clientX - this.prevX;
-            const dy = e.clientY - (this.prevY || e.clientY);
             const dy = e.clientY - this.prevY;
-
+          
             if (Math.abs(dx) < this.data.minMovePx && Math.abs(dy) < this.data.minMovePx) return;
-
+          
             this.prevX = e.clientX;
             this.prevY = e.clientY;
-
-            // Rotación horizontal (izquierda/derecha)
+          
             // Rotación horizontal
             this.el.object3D.rotation.y += dx * this.data.rotateSpeed;
-
-            // Rotación vertical (arriba/abajo)
-            this.el.object3D.rotation.x += dy * this.data.rotateSpeed;
+          
             // 🔥 Detectar si el modelo está de espaldas
             const rotY = this.el.object3D.rotation.y;
             const normalizedY = ((rotY % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-
-            // 🔒 Opcional: limitar inclinación para que no se voltee raro
-            const maxTilt = Math.PI / 2; // 90°
+          
             const isBackView = normalizedY > Math.PI / 2 && normalizedY < (3 * Math.PI) / 2;
           
             // 🔥 Corregir dirección vertical
